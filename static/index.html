@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - AI Assignment Plagiarism Analyser</title>
+  <!-- Google Fonts & FontAwesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+  <div class="bg-grid"></div>
+  
+  <div class="portal-container">
+    <div class="glass-card portal-card">
+      <div class="portal-logo"><i class="fa-solid fa-brain-circuit" style="color: var(--accent-cyan); margin-right: 8px;"></i>GMU PLAGARISM ANALYSER</div>
+      <div class="portal-subtitle">AI Assignment Plagiarism Analyser</div>
+      
+      <!-- Login / Register Tabs -->
+      <div style="display: flex; gap: 10px; margin-bottom: 24px; border-bottom: 1px solid var(--border-glass); padding-bottom: 12px;">
+        <button id="tab-login" class="role-tab active" style="flex: 1; background: none; border: none; font-size: 1rem;" onclick="switchAuthTab('login')">Sign In</button>
+        <button id="tab-register" class="role-tab" style="flex: 1; background: none; border: none; font-size: 1rem;" onclick="switchAuthTab('register')">Register</button>
+      </div>
+
+      <div id="auth-alert" class="auth-alert"></div>
+
+      <!-- Auth Form -->
+      <form id="auth-form" onsubmit="handleAuthSubmit(event)">
+        <!-- Full Name (Only for Register) -->
+        <div class="form-group" id="group-fullname" style="display: none;">
+          <label for="reg-fullname">Full Name</label>
+          <div style="position: relative;">
+            <i class="fa-solid fa-user" style="position: absolute; left: 14px; top: 15px; color: var(--text-muted);"></i>
+            <input type="text" id="reg-fullname" class="form-control" placeholder="Enter full name" style="padding-left: 40px;">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="auth-username">Username</label>
+          <div style="position: relative;">
+            <i class="fa-solid fa-circle-user" style="position: absolute; left: 14px; top: 15px; color: var(--text-muted);"></i>
+            <input type="text" id="auth-username" class="form-control" required placeholder="Enter username" style="padding-left: 40px;">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="auth-password">Password</label>
+          <div style="position: relative;">
+            <i class="fa-solid fa-lock" style="position: absolute; left: 14px; top: 15px; color: var(--text-muted);"></i>
+            <input type="password" id="auth-password" class="form-control" required placeholder="Enter password" style="padding-left: 40px;">
+          </div>
+        </div>
+
+        <!-- Role Select (Hidden for admin login, togglable for students/teachers) -->
+        <div class="form-group" id="group-role">
+          <label>Role</label>
+          <div class="role-selector">
+            <button type="button" id="role-student" class="role-tab active" onclick="selectRole('student')">Student</button>
+            <button type="button" id="role-teacher" class="role-tab" onclick="selectRole('teacher')">Teacher</button>
+            <button type="button" id="role-admin" class="role-tab" onclick="selectRole('admin')">Admin</button>
+          </div>
+        </div>
+
+        <!-- Class/Section (For Students Only) -->
+        <div class="form-group section-login-group active" id="group-section">
+          <label for="auth-section">Class / Section</label>
+          <div style="position: relative;">
+            <i class="fa-solid fa-school" style="position: absolute; left: 14px; top: 15px; color: var(--text-muted);"></i>
+            <select id="auth-section" class="form-control" style="padding-left: 40px;">
+              <option value="CY2A">CY2A</option>
+              <option value="CY2B">CY2B</option>
+              <option value="IY2A">IY2A</option>
+              <option value="IY2B">IY2B</option>
+            </select>
+          </div>
+        </div>
+
+        <button type="submit" id="btn-submit" class="btn btn-cyan" style="width: 100%; margin-top: 10px; height: 48px;">
+          <span id="btn-submit-text">Sign In</span>
+          <i class="fa-solid fa-arrow-right"></i>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    let currentMode = "login"; // "login" or "register"
+    let selectedRole = "student"; // "student", "teacher", "admin"
+
+    // Check if user is already logged in, redirect if so
+    window.onload = function() {
+        const userStr = localStorage.getItem("currentUser");
+        if (userStr) {
+            const user = JSON.parse(userStr);
+            redirectToDashboard(user.role);
+        }
+    }
+
+    function switchAuthTab(mode) {
+        currentMode = mode;
+        const loginTab = document.getElementById("tab-login");
+        const registerTab = document.getElementById("tab-register");
+        const fullNameGroup = document.getElementById("group-fullname");
+        const roleGroup = document.getElementById("group-role");
+        const submitText = document.getElementById("btn-submit-text");
+        
+        // Reset inputs
+        document.getElementById("auth-username").value = "";
+        document.getElementById("auth-password").value = "";
+        document.getElementById("reg-fullname").value = "";
+        
+        if (mode === "login") {
+            loginTab.classList.add("active");
+            registerTab.classList.remove("active");
+            fullNameGroup.style.display = "none";
+            roleGroup.style.display = "block";
+            submitText.textContent = "Sign In";
+            // Admin role allowed for login
+            document.getElementById("role-admin").style.display = "block";
+        } else {
+            loginTab.classList.remove("active");
+            registerTab.classList.add("active");
+            fullNameGroup.style.display = "block";
+            submitText.textContent = "Register Account";
+            
+            // Cannot register as admin
+            if (selectedRole === "admin") {
+                selectRole("student");
+            }
+            document.getElementById("role-admin").style.display = "none";
+            roleGroup.style.display = "block";
+        }
+        
+        const alertBox = document.getElementById("auth-alert");
+        alertBox.style.display = "none";
+    }
+
+    function selectRole(role) {
+        selectedRole = role;
+        
+        // Update active class on role buttons
+        document.getElementById("role-student").classList.remove("active");
+        document.getElementById("role-teacher").classList.remove("active");
+        document.getElementById("role-admin").classList.remove("active");
+        
+        document.getElementById(`role-${role}`).classList.add("active");
+        
+        const sectionGroup = document.getElementById("group-section");
+        if (role === "student") {
+            sectionGroup.classList.add("active");
+        } else {
+            sectionGroup.classList.remove("active");
+        }
+    }
+
+    async function handleAuthSubmit(event) {
+        event.preventDefault();
+        
+        const username = document.getElementById("auth-username").value.trim();
+        const password = document.getElementById("auth-password").value;
+        const alertBox = document.getElementById("auth-alert");
+        
+        alertBox.style.display = "none";
+        
+        try {
+            if (currentMode === "login") {
+                // Perform Login API Call
+                const formData = new FormData();
+                formData.append("username", username);
+                formData.append("password", password);
+                
+                const response = await fetch("/api/auth/login", {
+                    method: "POST",
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || "Authentication failed");
+                }
+                
+                const result = await response.json();
+                
+                // Store currentUser details in localStorage
+                localStorage.setItem("currentUser", JSON.stringify({
+                    user_id: result.user_id,
+                    username: result.username,
+                    role: result.role,
+                    section: result.section,
+                    full_name: result.full_name
+                }));
+                
+                // Redirect based on role
+                redirectToDashboard(result.role);
+                
+            } else {
+                // Perform Register API Call
+                const fullName = document.getElementById("reg-fullname").value.trim();
+                const section = document.getElementById("auth-section").value;
+                
+                if (!fullName) {
+                    throw new Error("Full name is required");
+                }
+                
+                const formData = new FormData();
+                formData.append("username", username);
+                formData.append("password", password);
+                formData.append("full_name", fullName);
+                formData.append("role", selectedRole);
+                
+                if (selectedRole === "student") {
+                    formData.append("section", section);
+                }
+                
+                const response = await fetch("/api/auth/register", {
+                    method: "POST",
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || "Registration failed");
+                }
+                
+                alertBox.className = "auth-alert auth-alert-success";
+                alertBox.textContent = "Registration successful! You can now log in.";
+                alertBox.style.display = "block";
+                
+                // Switch back to login page
+                setTimeout(() => {
+                    switchAuthTab("login");
+                }, 1500);
+            }
+        } catch (error) {
+            alertBox.className = "auth-alert auth-alert-error";
+            alertBox.textContent = error.message;
+            alertBox.style.display = "block";
+        }
+    }
+  </script>
+</body>
+</html>

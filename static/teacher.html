@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teacher Dashboard - GMU PLAGARISM ANALYSER</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/static/css/styles.css">
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div class="bg-grid"></div>
+  
+  <div class="dashboard-wrapper">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <i class="fa-solid fa-brain-circuit" style="color: var(--accent-cyan); font-size: 1.5rem;"></i>
+        <span class="sidebar-logo">GMU PLAGARISM ANALYSER Faculty</span>
+      </div>
+      
+      <ul class="sidebar-menu">
+        <li class="sidebar-item">
+          <a href="#" class="sidebar-link active" onclick="switchTeacherTab('submissions')">
+            <i class="fa-solid fa-file-signature"></i>
+            <span>Submissions & Scans</span>
+          </a>
+        </li>
+        <li class="sidebar-item">
+          <a href="#" class="sidebar-link" onclick="switchTeacherTab('analytics')">
+            <i class="fa-solid fa-chart-line"></i>
+            <span>Visual Analytics</span>
+          </a>
+        </li>
+      </ul>
+      
+      <div class="sidebar-user">
+        <div class="user-profile-info">
+          <div class="user-avatar" id="user-avatar-initial">T</div>
+          <div class="user-details">
+            <span class="user-name" id="user-profile-name">Teacher Account</span>
+            <span class="user-role" id="user-profile-role">Teacher</span>
+          </div>
+        </div>
+        <button class="btn btn-secondary" onclick="logout()" style="width: 100%;">
+          <i class="fa-solid fa-right-from-bracket"></i>
+          <span>Logout</span>
+        </button>
+      </div>
+    </aside>
+    
+    <!-- Main Content Area -->
+    <main class="main-content">
+      
+      <!-- SUBMISSIONS TAB -->
+      <section id="tab-section-submissions">
+        <header class="content-header">
+          <div>
+            <h1>Assignment Scanning & Grader</h1>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 4px;">Choose section, manage prompts, batch scan, and allot marks.</p>
+          </div>
+        </header>
+
+        <!-- Section filter bar -->
+        <div class="section-filter-bar" id="section-filter-container">
+          <button class="section-pill active" onclick="filterBySection('CY2A')">CY2A</button>
+          <button class="section-pill" onclick="filterBySection('CY2B')">CY2B</button>
+          <button class="section-pill" onclick="filterBySection('IY2A')">IY2A</button>
+          <button class="section-pill" onclick="filterBySection('IY2B')">IY2B</button>
+        </div>
+
+        <div class="dashboard-grid">
+          <!-- Main workspace: Submissions and prompt creations -->
+          <div style="display: flex; flex-direction: column; gap: 30px;">
+            
+            <!-- Submissions list -->
+            <div class="glass-card">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+                <h2 style="font-size: 1.25rem; display: flex; align-items: center; gap: 10px;">
+                  <i class="fa-solid fa-folder-open" style="color: var(--accent-cyan);"></i>
+                  <span>Submissions Directory</span>
+                </h2>
+                
+                <div style="display: flex; gap: 10px;">
+                  <button class="btn btn-cyan" id="btn-batch-scan" onclick="triggerBatchScan()" disabled style="padding: 8px 16px; font-size: 0.85rem;">
+                    <i class="fa-solid fa-bolt"></i>
+                    <span>Batch Scan Section</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="select-teacher-assignment">Select Active Prompt</label>
+                <select id="select-teacher-assignment" class="form-control" onchange="handleAssignmentSelect()">
+                  <!-- Dynamically populated options -->
+                </select>
+              </div>
+              
+              <div class="table-responsive" style="margin-top: 10px;">
+                <table class="custom-table">
+                  <thead>
+                    <tr>
+                      <th>Student</th>
+                      <th>File Name</th>
+                      <th>Submission Date</th>
+                      <th>Overall Plag</th>
+                      <th>Marks Allotted</th>
+                      <th style="text-align: right;">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="teacher-submissions-table-body">
+                    <!-- Dynamically populated rows -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Sidebar: Create Assignment Form -->
+          <div class="glass-card" style="height: fit-content;">
+            <h2 style="font-size: 1.25rem; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+              <i class="fa-solid fa-file-circle-plus" style="color: var(--accent-cyan);"></i>
+              <span>Create New Assignment</span>
+            </h2>
+            
+            <div id="create-asg-alert" class="auth-alert" style="margin-bottom: 16px;"></div>
+
+            <form id="create-assignment-form" onsubmit="handleCreateAssignment(event)">
+              <div class="form-group">
+                <label for="new-asg-title">Assignment Title</label>
+                <input type="text" id="new-asg-title" class="form-control" required placeholder="e.g. Lab Report 1: Cosine Similarity">
+              </div>
+              
+              <div class="form-group">
+                <label for="new-asg-desc">Description / Instructions</label>
+                <textarea id="new-asg-desc" class="form-control" rows="3" required placeholder="Describe task prompts..."></textarea>
+              </div>
+              
+              <div class="form-group">
+                <label for="new-asg-section">Assigned Section</label>
+                <select id="new-asg-section" class="form-control">
+                  <option value="CY2A">CY2A</option>
+                  <option value="CY2B">CY2B</option>
+                  <option value="IY2A">IY2A</option>
+                  <option value="IY2B">IY2B</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="new-asg-due">Due Date</label>
+                <input type="date" id="new-asg-due" class="form-control" required>
+              </div>
+
+              <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">
+                <i class="fa-solid fa-plus"></i>
+                <span>Publish Assignment</span>
+              </button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- ANALYTICS TAB -->
+      <section id="tab-section-analytics" style="display: none;">
+        <header class="content-header">
+          <div>
+            <h1>Visual Analytics & Section Progress</h1>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 4px;">Track plagiarism spreads, risk distribution, and grade averages.</p>
+          </div>
+        </header>
+
+        <div style="display: flex; flex-direction: column; gap: 30px;">
+          <!-- Top analytics cards -->
+          <div class="charts-grid">
+            <!-- Grade spreads per section -->
+            <div class="glass-card">
+              <h3 style="font-size: 1.1rem; margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-chart-column" style="color: var(--accent-cyan);"></i> Average Grades by Class Section
+              </h3>
+              <div class="chart-container">
+                <canvas id="chart-grades"></canvas>
+              </div>
+            </div>
+            
+            <!-- Plagiarism Risk levels -->
+            <div class="glass-card">
+              <h3 style="font-size: 1.1rem; margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-triangle-exclamation" style="color: var(--accent-red);"></i> Plagiarism Risk Distribution
+              </h3>
+              <div class="chart-container">
+                <canvas id="chart-risk"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- Scatter correlation -->
+          <div class="glass-card">
+            <h3 style="font-size: 1.1rem; margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
+              <i class="fa-solid fa-chart-line" style="color: var(--accent-violet);"></i> Marks vs. Plagiarism Rate Correlation
+            </h3>
+            <div style="height: 320px; position: relative;">
+              <canvas id="chart-correlation"></canvas>
+            </div>
+            <p style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 12px; text-align: center;">
+              * Renders all graded student papers. Plots marks (Y-axis) against plagiarism rate (X-axis) to review copying impacts.
+            </p>
+          </div>
+        </div>
+      </section>
+      
+    </main>
+  </div>
+
+  <!-- IMMERSIVE SCANNING OVERLAY MODAL -->
+  <div class="modal-overlay" id="scanning-modal">
+    <div class="modal-content" style="max-width: 540px;">
+      <div class="modal-body">
+        <div class="scan-animation-container">
+          <div class="scan-radar">
+            <i class="fa-solid fa-brain-circuit scan-radar-inner"></i>
+          </div>
+          <h3 style="font-size: 1.4rem; margin-bottom: 8px;" id="scanning-title">AI Engine Initializing...</h3>
+          <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 24px;" id="scanning-subtitle">Running high-performance comparison algorithms...</p>
+          
+          <div class="scan-log" id="scanning-log">
+            <!-- Simulated or backend-fed logging lines -->
+          </div>
+          
+          <div style="width: 100%; max-width: 500px; height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; margin-top: 24px; overflow: hidden; position: relative;">
+            <div id="scanning-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-violet), var(--accent-cyan)); transition: width 0.1s ease; border-radius: 3px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PLAGIARISM COMPARISON & GRADER OVERLAY MODAL -->
+  <div class="modal-overlay" id="grader-modal">
+    <div class="modal-content" style="max-width: 90vw; width: 1100px;">
+      <div class="modal-header">
+        <h3 id="grader-modal-title">Grader & Plagiarism Comparison Report</h3>
+        <button class="modal-close" onclick="closeGraderModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="dashboard-grid">
+          
+          <!-- Left: Plagiarism highlight viewer -->
+          <div>
+            <div class="plagiarism-summary-card">
+              <div class="progress-label">
+                <div class="circular-progress" id="grader-progress-overall" style="--accent-color: var(--accent-red)">
+                  <span class="progress-value" id="grader-val-overall">0%</span>
+                </div>
+                <span>Overall Score</span>
+              </div>
+              
+              <div class="progress-label">
+                <div class="circular-progress" id="grader-progress-peer" style="--accent-color: var(--accent-violet)">
+                  <span class="progress-value" id="grader-val-peer">0%</span>
+                </div>
+                <span>Peer Copy</span>
+              </div>
+              
+              <div class="progress-label">
+                <div class="circular-progress" id="grader-progress-internet" style="--accent-color: var(--accent-cyan)">
+                  <span class="progress-value" id="grader-val-internet">0%</span>
+                </div>
+                <span>Internet Copy</span>
+              </div>
+            </div>
+
+            <h4 style="font-size: 1rem; margin-bottom: 8px;">Document text comparison (Matches highlighted)</h4>
+            <div style="display: flex; gap: 16px; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px; flex-wrap: wrap;">
+              <div><span style="display: inline-block; width: 12px; height: 12px; background: rgba(138, 43, 226, 0.3); border-bottom: 2px solid var(--accent-violet); margin-right: 4px; vertical-align: middle;"></span> Peer Similarity</div>
+              <div><span style="display: inline-block; width: 12px; height: 12px; background: rgba(0, 242, 254, 0.2); border-bottom: 2px solid var(--accent-cyan); margin-right: 4px; vertical-align: middle;"></span> Internet Similarity</div>
+              <div style="margin-left: auto;">* Hover over highlighted segments to inspect matching sources.</div>
+            </div>
+            <div class="doc-panel" id="grader-doc-viewer" style="height: 380px; max-height: 40vh;">
+              <!-- Highlights code -->
+            </div>
+          </div>
+
+          <!-- Right: Matches list and Grader Form -->
+          <div style="display: flex; flex-direction: column; gap: 20px;">
+            <!-- Top matches list -->
+            <div class="glass-card" style="padding: 16px; max-height: 220px; overflow-y: auto; background: rgba(255,255,255,0.01);">
+              <h4 style="font-size: 0.95rem; margin-bottom: 10px; color: var(--text-primary);">Flagged Match Sources</h4>
+              <div id="grader-sources-list" style="display: flex; flex-direction: column; gap: 8px;">
+                <!-- Dynamically populated list of peers/websites -->
+              </div>
+            </div>
+
+            <!-- Grader Form -->
+            <div class="glass-card" style="padding: 20px; border-top: 3px solid var(--accent-cyan);">
+              <h4 style="font-size: 1.1rem; margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-pen-clip" style="color: var(--accent-cyan);"></i> Assessment & Grades Allotment
+              </h4>
+              <div id="grader-alert" class="auth-alert" style="margin-bottom: 12px;"></div>
+              
+              <form id="grader-form" onsubmit="handleGradeSubmit(event)">
+                <div class="form-group">
+                  <label for="grader-marks">Allot Marks (0 - 100)</label>
+                  <input type="number" id="grader-marks" class="form-control" required min="0" max="100" placeholder="Enter grade percentage">
+                </div>
+                <div class="form-group">
+                  <label for="grader-feedback">Teacher Feedback / Corrections</label>
+                  <textarea id="grader-feedback" class="form-control" rows="3" required placeholder="Enter feedback details..."></textarea>
+                </div>
+                <button type="submit" class="btn btn-cyan" style="width: 100%; height: 44px;">
+                  <i class="fa-solid fa-floppy-disk"></i> Save Grade & Allotment
+                </button>
+              </form>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+  <script src="/static/js/teacher.js"></script>
+</body>
+</html>

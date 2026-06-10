@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard - GMU PLAGARISM ANALYSER</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+  <div class="bg-grid"></div>
+  
+  <div class="dashboard-wrapper">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <i class="fa-solid fa-brain-circuit" style="color: var(--accent-cyan); font-size: 1.5rem;"></i>
+        <span class="sidebar-logo">GMU PLAGARISM ANALYSER Admin</span>
+      </div>
+      
+      <ul class="sidebar-menu">
+        <li class="sidebar-item">
+          <a href="#" class="sidebar-link active">
+            <i class="fa-solid fa-users-gear"></i>
+            <span>Manage Users</span>
+          </a>
+        </li>
+      </ul>
+      
+      <div class="sidebar-user">
+        <div class="user-profile-info">
+          <div class="user-avatar" id="user-avatar-initial">A</div>
+          <div class="user-details">
+            <span class="user-name" id="user-profile-name">Administrator</span>
+            <span class="user-role" id="user-profile-role">Admin</span>
+          </div>
+        </div>
+        <button class="btn btn-secondary" onclick="logout()" style="width: 100%;">
+          <i class="fa-solid fa-right-from-bracket"></i>
+          <span>Logout</span>
+        </button>
+      </div>
+    </aside>
+    
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <header class="content-header">
+        <div>
+          <h1>User & Credentials Management</h1>
+          <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 4px;">Add, list, and manage Teacher and Student dashboard credentials.</p>
+        </div>
+      </header>
+      
+      <!-- Metrics overview -->
+      <div class="metrics-grid">
+        <div class="glass-card metric-card metric-cyan">
+          <div class="metric-info">
+            <h3>Total Teachers</h3>
+            <div class="metric-value" id="count-teachers">0</div>
+          </div>
+          <div class="metric-icon">
+            <i class="fa-solid fa-chalkboard-user"></i>
+          </div>
+        </div>
+        <div class="glass-card metric-card metric-violet">
+          <div class="metric-info">
+            <h3>Total Students</h3>
+            <div class="metric-value" id="count-students">0</div>
+          </div>
+          <div class="metric-icon">
+            <i class="fa-solid fa-graduation-cap"></i>
+          </div>
+        </div>
+        <div class="glass-card metric-card metric-green">
+          <div class="metric-info">
+            <h3>Active Sections</h3>
+            <div class="metric-value">4</div>
+          </div>
+          <div class="metric-icon">
+            <i class="fa-solid fa-school"></i>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Manage Grid (Form & List side-by-side) -->
+      <div class="dashboard-grid">
+        <!-- Users List -->
+        <div class="glass-card">
+          <h2 style="font-size: 1.25rem; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+            <i class="fa-solid fa-list" style="color: var(--accent-cyan);"></i>
+            <span>Registered Users Directory</span>
+          </h2>
+          
+          <div class="table-responsive">
+            <table class="custom-table">
+              <thead>
+                <tr>
+                  <th>Role</th>
+                  <th>Full Name</th>
+                  <th>Username</th>
+                  <th>Section</th>
+                  <th style="text-align: right;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="users-table-body">
+                <!-- Dynamically generated rows -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+        <!-- Add User Form -->
+        <div class="glass-card" style="height: fit-content;">
+          <h2 style="font-size: 1.25rem; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+            <i class="fa-solid fa-user-plus" style="color: var(--accent-cyan);"></i>
+            <span>Add New Credentials</span>
+          </h2>
+          
+          <div id="form-alert" class="auth-alert" style="margin-bottom: 16px;"></div>
+          
+          <form id="create-user-form" onsubmit="handleCreateUser(event)">
+            <div class="form-group">
+              <label>Account Role</label>
+              <div class="role-selector">
+                <button type="button" id="form-role-student" class="role-tab active" onclick="setFormRole('student')" style="flex: 1;">Student</button>
+                <button type="button" id="form-role-teacher" class="role-tab" onclick="setFormRole('teacher')" style="flex: 1;">Teacher</button>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label for="new-fullname">Full Name</label>
+              <input type="text" id="new-fullname" class="form-control" required placeholder="e.g. John Doe">
+            </div>
+            
+            <div class="form-group">
+              <label for="new-username">Username</label>
+              <input type="text" id="new-username" class="form-control" required placeholder="e.g. johndoe">
+            </div>
+            
+            <div class="form-group">
+              <label for="new-password">Password</label>
+              <input type="password" id="new-password" class="form-control" required placeholder="Enter password">
+            </div>
+            
+            <!-- Class Section Selection (For Student Role only) -->
+            <div class="form-group section-login-group active" id="form-group-section">
+              <label for="new-section">Class / Section</label>
+              <select id="new-section" class="form-control">
+                <option value="CY2A">CY2A</option>
+                <option value="CY2B">CY2B</option>
+                <option value="IY2A">IY2A</option>
+                <option value="IY2B">IY2B</option>
+              </select>
+            </div>
+            
+            <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">
+              <i class="fa-solid fa-plus"></i>
+              <span>Create Credentials</span>
+            </button>
+          </form>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+  <script src="/static/js/admin.js"></script>
+</body>
+</html>

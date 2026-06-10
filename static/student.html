@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Student Dashboard - GMU PLAGARISM ANALYSER</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+  <div class="bg-grid"></div>
+  
+  <div class="dashboard-wrapper">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <i class="fa-solid fa-brain-circuit" style="color: var(--accent-cyan); font-size: 1.5rem;"></i>
+        <span class="sidebar-logo">GMU PLAGARISM ANALYSER Student</span>
+      </div>
+      
+      <ul class="sidebar-menu">
+        <li class="sidebar-item">
+          <a href="#" class="sidebar-link active">
+            <i class="fa-solid fa-user-graduate"></i>
+            <span>My Submissions</span>
+          </a>
+        </li>
+      </ul>
+      
+      <div class="sidebar-user">
+        <div class="user-profile-info">
+          <div class="user-avatar" id="user-avatar-initial">S</div>
+          <div class="user-details">
+            <span class="user-name" id="user-profile-name">Student Account</span>
+            <span class="user-role" id="user-profile-role">Student</span>
+          </div>
+        </div>
+        <button class="btn btn-secondary" onclick="logout()" style="width: 100%;">
+          <i class="fa-solid fa-right-from-bracket"></i>
+          <span>Logout</span>
+        </button>
+      </div>
+    </aside>
+    
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <header class="content-header">
+        <div>
+          <h1 id="welcome-message">Student Dashboard</h1>
+          <p id="student-section-label" style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 4px;">Enrolled Section: --</p>
+        </div>
+      </header>
+      
+      <!-- Metrics / Stats Summary -->
+      <div class="metrics-grid">
+        <div class="glass-card metric-card metric-cyan">
+          <div class="metric-info">
+            <h3>Pending Tasks</h3>
+            <div class="metric-value" id="count-pending-tasks">0</div>
+          </div>
+          <div class="metric-icon">
+            <i class="fa-solid fa-clock"></i>
+          </div>
+        </div>
+        <div class="glass-card metric-card metric-green">
+          <div class="metric-info">
+            <h3>Total Grades Set</h3>
+            <div class="metric-value" id="count-graded-tasks">0</div>
+          </div>
+          <div class="metric-icon">
+            <i class="fa-solid fa-award"></i>
+          </div>
+        </div>
+        <div class="glass-card metric-card metric-violet">
+          <div class="metric-info">
+            <h3>Avg Plagiarism</h3>
+            <div class="metric-value" id="count-avg-plag">0%</div>
+          </div>
+          <div class="metric-icon">
+            <i class="fa-solid fa-gauge-high"></i>
+          </div>
+        </div>
+        <div class="glass-card metric-card metric-orange">
+          <div class="metric-info">
+            <h3>Total Submissions</h3>
+            <div class="metric-value" id="count-total-subs">0</div>
+          </div>
+          <div class="metric-icon">
+            <i class="fa-solid fa-file-arrow-up"></i>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Main Content Container -->
+      <div style="display: flex; flex-direction: column; gap: 30px;">
+        <!-- Submissions & Upload Section -->
+        
+        <!-- Upload Assignment Form -->
+        <div class="glass-card">
+          <h2 style="font-size: 1.25rem; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+            <i class="fa-solid fa-cloud-arrow-up" style="color: var(--accent-cyan);"></i>
+            <span>Upload Assignment Report</span>
+          </h2>
+          
+          <div id="upload-alert" class="auth-alert" style="margin-bottom: 16px;"></div>
+          
+          <form id="submission-form" onsubmit="handleUploadSubmit(event)">
+            <div class="form-group">
+              <label for="select-assignment">Select Assignment</label>
+              <select id="select-assignment" class="form-control" required>
+                <!-- Dynamically populated options -->
+              </select>
+            </div>
+            
+            <!-- Drag and Drop Zone -->
+            <div class="form-group">
+              <label>Upload Report Document</label>
+              <div class="upload-zone" id="drop-zone">
+                <i class="fa-solid fa-cloud-arrow-up upload-icon" id="primary-upload-icon"></i>
+                <p class="upload-text" id="drop-zone-text">Drag and drop file here, or <span>browse files</span></p>
+                <p class="upload-hint">Supported: PDF, DOCX, PPTX, PNG, JPG (Max 5MB)</p>
+                <input type="file" id="file-input" class="file-input" required accept=".pdf,.docx,.pptx,.ppt,.png,.jpg,.jpeg" onchange="handleFileSelect(event)">
+              </div>
+              <!-- Supported formats visual badges -->
+              <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;">
+                <span class="badge badge-red" style="font-size: 0.7rem;"><i class="fa-solid fa-file-pdf" style="margin-right: 4px;"></i>PDF</span>
+                <span class="badge badge-cyan" style="font-size: 0.7rem;"><i class="fa-solid fa-file-word" style="margin-right: 4px;"></i>DOCX</span>
+                <span class="badge badge-orange" style="font-size: 0.7rem;"><i class="fa-solid fa-file-powerpoint" style="margin-right: 4px;"></i>PPTX</span>
+                <span class="badge badge-green" style="font-size: 0.7rem;"><i class="fa-solid fa-file-image" style="margin-right: 4px;"></i>PNG/JPG</span>
+              </div>
+            </div>
+            
+            <!-- Selected File Box -->
+            <div id="selected-file-container" style="display: none; margin-bottom: 20px;">
+              <div class="selected-file-preview">
+                <div class="file-info-box">
+                  <i class="fa-solid fa-file-lines file-type-icon"></i>
+                  <div>
+                    <div class="file-details-name" id="file-display-name">document.pdf</div>
+                    <div class="file-details-size" id="file-display-size">1.2 MB</div>
+                  </div>
+                </div>
+                <button type="button" class="btn btn-secondary btn-icon" onclick="resetFileSelection()" style="padding: 4px 8px;">
+                  <i class="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+            </div>
+            
+            <button type="submit" id="btn-upload" class="btn btn-cyan" style="width: 100%; height: 48px;" disabled>
+              <i class="fa-solid fa-paper-plane"></i>
+              <span>Upload & Submit Report</span>
+            </button>
+          </form>
+        </div>
+        
+        <!-- History List Card -->
+        <div class="glass-card">
+          <h2 style="font-size: 1.25rem; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+            <i class="fa-solid fa-history" style="color: var(--accent-cyan);"></i>
+            <span>My Reports & Similarity Summary</span>
+          </h2>
+          
+          <div class="table-responsive">
+            <table class="custom-table">
+              <thead>
+                <tr>
+                  <th>Assignment</th>
+                  <th>File Name</th>
+                  <th>Submitted At</th>
+                  <th>Plagiarism (Overall)</th>
+                  <th>Grade / Marks</th>
+                  <th style="text-align: right;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="submissions-table-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Highlights Plagiarism Report Modal -->
+  <div class="modal-overlay" id="report-modal">
+    <div class="modal-content" style="max-width: 800px;">
+      <div class="modal-header">
+        <h3 id="modal-report-title">Plagiarism Highlight Report</h3>
+        <button class="modal-close" onclick="closeReportModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        
+        <!-- Plagiarism summary percentages -->
+        <div class="plagiarism-summary-card">
+          <div class="progress-label">
+            <div class="circular-progress" id="modal-progress-overall" style="--accent-color: var(--accent-red)">
+              <span class="progress-value" id="modal-val-overall">0%</span>
+            </div>
+            <span>Overall Score</span>
+          </div>
+          
+          <div class="progress-label">
+            <div class="circular-progress" id="modal-progress-peer" style="--accent-color: var(--accent-violet)">
+              <span class="progress-value" id="modal-val-peer">0%</span>
+            </div>
+            <span>Peer Copy</span>
+          </div>
+          
+          <div class="progress-label">
+            <div class="circular-progress" id="modal-progress-internet" style="--accent-color: var(--accent-cyan)">
+              <span class="progress-value" id="modal-val-internet">0%</span>
+            </div>
+            <span>Internet Copy</span>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+          <h4 style="font-size: 1rem; margin-bottom: 8px;">Teacher Assessment</h4>
+          <div class="glass-card" style="padding: 16px; background: rgba(255,255,255,0.02);" id="modal-feedback-card">
+            <div><strong>Marks Allotted:</strong> <span id="modal-text-marks">Pending Grade</span></div>
+            <div style="margin-top: 6px;"><strong>Teacher Feedback:</strong> <span id="modal-text-feedback">Teacher has not graded this report yet.</span></div>
+          </div>
+        </div>
+        
+        <div>
+          <h4 style="font-size: 1rem; margin-bottom: 8px;">Document text comparison (Matches highlighted)</h4>
+          <div style="display: flex; gap: 16px; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px; flex-wrap: wrap;">
+            <div><span style="display: inline-block; width: 12px; height: 12px; background: rgba(138, 43, 226, 0.3); border-bottom: 2px solid var(--accent-violet); margin-right: 4px; vertical-align: middle;"></span> Peer Similarity</div>
+            <div><span style="display: inline-block; width: 12px; height: 12px; background: rgba(0, 242, 254, 0.2); border-bottom: 2px solid var(--accent-cyan); margin-right: 4px; vertical-align: middle;"></span> Internet Similarity</div>
+            <div style="margin-left: auto;">* Hover over highlighted segments to inspect matching sources.</div>
+          </div>
+          <div class="doc-panel" id="modal-doc-viewer">
+            <!-- Higlighted document body -->
+          </div>
+        </div>
+        
+        <div style="margin-top: 24px; display: flex; justify-content: flex-end;">
+          <button class="btn btn-secondary" onclick="closeReportModal()">Close Report</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+  <script src="/static/js/student.js"></script>
+</body>
+</html>
