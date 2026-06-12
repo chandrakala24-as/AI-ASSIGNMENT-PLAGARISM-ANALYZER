@@ -1,7 +1,7 @@
 from typing import Dict, List, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from database import get_db_connection
+from database import get_db
 from algorithms.tfidf_cosine import calculate_tfidf_similarity_batch
 from algorithms.ngram_matching import calculate_ngram_similarity
 from algorithms.winnowing import WinnowingMatcher
@@ -33,11 +33,9 @@ def search_internet_similarity(student_text: str) -> Tuple[float, List[Dict]]:
         return 0.0, []
 
     # ── Fetch all internet sources ──────────────────────────────────────────
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, title, url, content FROM mock_internet_sources")
-    sources = cursor.fetchall()
-    conn.close()
+    db = get_db()
+    sources_cur = db.mock_internet_sources.find()
+    sources = list(sources_cur)
 
     if not sources:
         return 0.0, []
@@ -105,7 +103,7 @@ def search_internet_similarity(student_text: str) -> Tuple[float, List[Dict]]:
                 highest_score = pct
 
             matches.append({
-                "source_id":       src["id"],
+                "source_id":       str(src["_id"]),
                 "title":           src["title"],
                 "url":             src["url"],
                 "similarity_pct":  pct,

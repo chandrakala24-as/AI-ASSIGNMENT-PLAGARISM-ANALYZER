@@ -5,14 +5,20 @@ from fastapi.responses import FileResponse, RedirectResponse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
 import os
-import shutil
-import sqlite3
 import json
 import re
 from datetime import datetime
 from typing import Optional, List
 
-from database import get_db_connection, init_db, hash_password, verify_password
+from database import get_db, init_db, hash_password, verify_password
+from bson.objectid import ObjectId
+
+def to_id(id_val):
+    if isinstance(id_val, int): return id_val
+    if isinstance(id_val, str) and len(id_val) == 24:
+        try: return ObjectId(id_val)
+        except: pass
+    return str(id_val)
 from utils.text_extractor import extract_text
 from utils.web_search import search_internet_similarity
 from algorithms.tfidf_cosine import calculate_tfidf_similarity, calculate_tfidf_similarity_batch
@@ -83,21 +89,18 @@ def read_root():
 
 @app.post("/api/auth/login")
 def login(username: str = Form(...), password: str = Form(...)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, username, password_hash, role, section, full_name FROM users WHERE username = ?", (username,))
-    user = cursor.fetchone()
-    conn.close()
+    db = get_db()
+    user = db.users.find_one({"username": username})
     
     if not user or not verify_password(password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid username or password")
         
     return {
         "status": "success",
-        "user_id": user["id"],
+        "user_id": str(user["_id"]),
         "username": user["username"],
         "role": user["role"],
-        "section": user["section"],
+        "section": user.get("section"),
         "full_name": user["full_name"]
     }
 
@@ -116,37 +119,40 @@ def register(
     if role == "student" and (not section or section not in ["CY2A", "CY2B", "IY2A", "IY2B"]):
         raise HTTPException(status_code=400, detail="Students must specify section: CY2A, CY2B, IY2A, or IY2B")
         
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    db = get_db()
     
     # Check if username exists
-    cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
-    if cursor.fetchone():
-        conn.close()
+    if db.users.find_one({"username": username}):
         raise HTTPException(status_code=400, detail="Username already exists")
         
     try:
-        cursor.execute(
-            "INSERT INTO users (username, password_hash, role, section, full_name) VALUES (?, ?, ?, ?, ?)",
-            (username, hash_password(password), role, section if role == "student" else None, full_name)
-        )
-        conn.commit()
+        db.users.insert_one({
+            "username": username,
+            "password_hash": hash_password(password),
+            "role": role,
+            "section": section if role == "student" else None,
+            "full_name": full_name
+        })
     except Exception as e:
-        conn.close()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
         
-    conn.close()
     return {"status": "success", "message": "User registered successfully"}
 
 # ==================== ADMIN ENDPOINTS ====================
 
 @app.get("/api/admin/users")
 def get_users():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, username, role, section, full_name FROM users WHERE role != 'admin' ORDER BY role, username")
-    users = [dict(row) for row in cursor.fetchall()]
-    conn.close()
+    db = get_db()
+    users_cur = db.users.find({"role": {"$ne": "admin"}}).sort([("role", 1), ("username", 1)])
+    users = []
+    for u in users_cur:
+        users.append({
+            "id": str(u["_id"]),
+            "username": u["username"],
+            "role": u["role"],
+            "section": u.get("section"),
+            "full_name": u["full_name"]
+        })
     return users
 
 @app.post("/api/admin/users")
@@ -163,96 +169,122 @@ def admin_create_user(
     if role == "student" and not section:
         raise HTTPException(status_code=400, detail="Student must have a class section")
         
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    db = get_db()
     
     # Check duplicate
-    cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
-    if cursor.fetchone():
-        conn.close()
+    if db.users.find_one({"username": username}):
         raise HTTPException(status_code=400, detail="Username already exists")
         
-    cursor.execute(
-        "INSERT INTO users (username, password_hash, role, section, full_name) VALUES (?, ?, ?, ?, ?)",
-        (username, hash_password(password), role, section if role == "student" else None, full_name)
-    )
-    conn.commit()
-    conn.close()
+    db.users.insert_one({
+        "username": username,
+        "password_hash": hash_password(password),
+        "role": role,
+        "section": section if role == "student" else None,
+        "full_name": full_name
+    })
     return {"status": "success", "message": f"User {username} created successfully"}
 
 @app.delete("/api/admin/users/{user_id}")
-def admin_delete_user(user_id: int):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+def admin_delete_user(user_id: str):
+    db = get_db()
     
     # Check user existence
-    cursor.execute("SELECT username, role FROM users WHERE id = ?", (user_id,))
-    user = cursor.fetchone()
+    user = db.users.find_one({"_id": to_id(user_id)})
     if not user:
-        conn.close()
         raise HTTPException(status_code=404, detail="User not found")
         
     if user["role"] == "admin":
-        conn.close()
         raise HTTPException(status_code=400, detail="Cannot delete administrator account")
         
-    cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
-    conn.commit()
-    conn.close()
+    db.users.delete_one({"_id": to_id(user_id)})
     return {"status": "success", "message": f"User {user['username']} deleted successfully"}
 
 # ==================== STUDENT ENDPOINTS ====================
 
 @app.get("/api/student/assignments")
 def get_student_assignments(section: str):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    # Fetch assignments created for this section, joining with teacher details
-    cursor.execute("""
-        SELECT a.id, a.title, a.description, a.due_date, u.full_name as teacher_name
-        FROM assignments a
-        LEFT JOIN users u ON a.created_by_teacher_id = u.id
-        WHERE a.class_section = ?
-        ORDER BY a.id DESC
-    """, (section,))
-    assignments = [dict(row) for row in cursor.fetchall()]
-    conn.close()
+    db = get_db()
+    pipeline = [
+        {"$match": {"class_section": section}},
+        {"$lookup": {
+            "from": "users",
+            "localField": "created_by_teacher_id",
+            "foreignField": "_id",
+            "as": "teacher"
+        }},
+        {"$unwind": {"path": "$teacher", "preserveNullAndEmptyArrays": True}},
+        {"$sort": {"_id": -1}}
+    ]
+    assignments_cur = db.assignments.aggregate(pipeline)
+    assignments = []
+    for a in assignments_cur:
+        assignments.append({
+            "id": str(a["_id"]),
+            "title": a["title"],
+            "description": a.get("description"),
+            "due_date": a.get("due_date"),
+            "teacher_name": a.get("teacher", {}).get("full_name", "Unknown")
+        })
     return assignments
 
 @app.get("/api/student/submissions")
-def get_student_submissions(student_id: int):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT s.id as submission_id, s.file_name, s.extracted_text, s.submitted_at, s.marks, s.feedback,
-               a.id as assignment_id, a.title as assignment_title, a.description as assignment_desc,
-               r.peer_similarity_pct, r.internet_similarity_pct, r.overall_plagiarism_pct, r.detailed_report_json
-        FROM submissions s
-        JOIN assignments a ON s.assignment_id = a.id
-        LEFT JOIN plagiarism_reports r ON r.submission_id = s.id
-        WHERE s.student_id = ?
-        ORDER BY s.submitted_at DESC
-    """, (student_id,))
-    rows = cursor.fetchall()
+def get_student_submissions(student_id: str):
+    db = get_db()
+    pipeline = [
+        {"$match": {"student_id": to_id(student_id)}},
+        {"$lookup": {
+            "from": "assignments",
+            "localField": "assignment_id",
+            "foreignField": "_id",
+            "as": "assignment"
+        }},
+        {"$unwind": {"path": "$assignment", "preserveNullAndEmptyArrays": True}},
+        {"$lookup": {
+            "from": "plagiarism_reports",
+            "localField": "_id",
+            "foreignField": "submission_id",
+            "as": "report"
+        }},
+        {"$unwind": {"path": "$report", "preserveNullAndEmptyArrays": True}},
+        {"$sort": {"submitted_at": -1}}
+    ]
     
+    rows = db.submissions.aggregate(pipeline)
     submissions = []
+    
     for row in rows:
-        d = dict(row)
-        if d["detailed_report_json"]:
-            d["detailed_report"] = json.loads(d["detailed_report_json"])
-        else:
-            d["detailed_report"] = None
-        del d["detailed_report_json"]
-        submissions.append(d)
+        report = row.get("report", {})
+        assignment = row.get("assignment", {})
         
-    conn.close()
+        # In MongoDB, detailed_report is likely already a dict/json object, 
+        # but if we store it as string, we load it. Let's assume we store it as dict now.
+        detailed_report = report.get("detailed_report_json")
+        if isinstance(detailed_report, str):
+            detailed_report = json.loads(detailed_report)
+            
+        submissions.append({
+            "submission_id": str(row["_id"]),
+            "file_name": row["file_name"],
+            "extracted_text": row.get("extracted_text", ""),
+            "submitted_at": row["submitted_at"],
+            "marks": row.get("marks"),
+            "feedback": row.get("feedback"),
+            "assignment_id": str(assignment.get("_id", "")),
+            "assignment_title": assignment.get("title", ""),
+            "assignment_desc": assignment.get("description", ""),
+            "peer_similarity_pct": report.get("peer_similarity_pct"),
+            "internet_similarity_pct": report.get("internet_similarity_pct"),
+            "overall_plagiarism_pct": report.get("overall_plagiarism_pct"),
+            "detailed_report": detailed_report
+        })
+        
     return submissions
 
 @app.post("/api/student/upload")
 async def student_upload_assignment(
     background_tasks: BackgroundTasks,
-    assignment_id: int = Form(...),
-    student_id: int = Form(...),
+    assignment_id: str = Form(...),
+    student_id: str = Form(...),
     file: UploadFile = File(...)
 ):
     """
@@ -275,67 +307,55 @@ async def student_upload_assignment(
             detail="Unsupported file format. Upload PDF, DOCX, PPTX, PNG, or JPG."
         )
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    # ── Verify assignment exists ───────────────────────────────────────────
-    cursor.execute("SELECT title, class_section FROM assignments WHERE id = ?", (assignment_id,))
-    assignment = cursor.fetchone()
+    db = get_db()
+    
+    # Verify assignment exists
+    assignment = db.assignments.find_one({"_id": to_id(assignment_id)})
     if not assignment:
-        conn.close()
         raise HTTPException(status_code=404, detail="Assignment not found")
-
-    # ── Check for existing submission (re-upload scenario) ─────────────────
-    cursor.execute(
-        "SELECT id, file_path FROM submissions WHERE assignment_id = ? AND student_id = ?",
-        (assignment_id, student_id)
-    )
-    existing_sub = cursor.fetchone()
-
-    # ── Write file to disk asynchronously (non-blocking) ──────────────────
-    timestamp      = datetime.now().strftime("%Y%m%d%H%M%S")
-    safe_filename  = f"sub_{student_id}_{assignment_id}_{timestamp}{file_ext}"
+        
+    # Check for existing submission
+    existing_sub = db.submissions.find_one({"assignment_id": to_id(assignment_id), "student_id": to_id(student_id)})
+    
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    safe_filename = f"sub_{student_id}_{assignment_id}_{timestamp}{file_ext}"
     saved_file_path = os.path.join(UPLOAD_DIR, safe_filename)
-
-    # Read entire file content (FastAPI UploadFile supports async read)
+    
     file_content = await file.read()
-
-    # Write to disk in thread pool — avoids blocking the async event loop
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(
-        _thread_pool,
-        lambda: open(saved_file_path, "wb").write(file_content)
-    )
-
-    # ── Create / update DB record with empty text (fast — no extraction yet)
+    await loop.run_in_executor(_thread_pool, lambda: open(saved_file_path, "wb").write(file_content))
+    
     now_iso = datetime.now().isoformat()
-
+    
     if existing_sub:
-        # Remove old file
         try:
             if os.path.exists(existing_sub["file_path"]):
                 os.remove(existing_sub["file_path"])
         except Exception as fe:
             print(f"[Upload] Could not remove old file: {fe}")
-
-        cursor.execute("""
-            UPDATE submissions
-            SET file_name = ?, file_path = ?, extracted_text = ?,
-                submitted_at = ?, marks = NULL, feedback = NULL
-            WHERE id = ?
-        """, (file.filename, saved_file_path, "", now_iso, existing_sub["id"]))
-        submission_id = existing_sub["id"]
-        cursor.execute("DELETE FROM plagiarism_reports WHERE submission_id = ?", (submission_id,))
+            
+        db.submissions.update_one({"_id": existing_sub["_id"]}, {
+            "$set": {
+                "file_name": file.filename,
+                "file_path": saved_file_path,
+                "extracted_text": "",
+                "submitted_at": now_iso,
+                "marks": None,
+                "feedback": None
+            }
+        })
+        submission_id = str(existing_sub["_id"])
+        db.plagiarism_reports.delete_many({"submission_id": existing_sub["_id"]})
     else:
-        cursor.execute("""
-            INSERT INTO submissions
-                (assignment_id, student_id, file_name, file_path, extracted_text, submitted_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (assignment_id, student_id, file.filename, saved_file_path, "", now_iso))
-        submission_id = cursor.lastrowid
-
-    conn.commit()
-    conn.close()
+        result = db.submissions.insert_one({
+            "assignment_id": to_id(assignment_id),
+            "student_id": to_id(student_id),
+            "file_name": file.filename,
+            "file_path": saved_file_path,
+            "extracted_text": "",
+            "submitted_at": now_iso
+        })
+        submission_id = str(result.inserted_id)
 
     # ── Mark as processing and queue background extraction ─────────────────
     _upload_status[submission_id] = "processing"
@@ -352,7 +372,7 @@ async def student_upload_assignment(
     }
 
 
-async def _extract_and_store(submission_id: int, file_path: str):
+async def _extract_and_store(submission_id: str, file_path: str):
     """
     Background task: extracts text from the uploaded file and updates the
     submissions table, then triggers the plagiarism scan. Runs after the
@@ -365,14 +385,11 @@ async def _extract_and_store(submission_id: int, file_path: str):
             _thread_pool, extract_text, file_path
         )
 
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE submissions SET extracted_text = ? WHERE id = ?",
-            (extracted_text, submission_id)
+        db = get_db()
+        db.submissions.update_one(
+            {"_id": to_id(submission_id)},
+            {"$set": {"extracted_text": extracted_text}}
         )
-        conn.commit()
-        conn.close()
 
         print(f"[Upload] Extraction complete for submission {submission_id} "
               f"({len(extracted_text.split())} words). Triggering plagiarism scan...")
@@ -391,7 +408,7 @@ async def _extract_and_store(submission_id: int, file_path: str):
 
 
 @app.get("/api/student/upload_status/{submission_id}")
-def get_upload_status(submission_id: int):
+def get_upload_status(submission_id: str):
     """
     Poll this endpoint after uploading to know when text extraction is done.
     Returns: { status: 'processing' | 'ready' | 'error' | 'unknown' }
@@ -407,113 +424,128 @@ def teacher_create_assignment(
     description: str = Form(...),
     class_section: str = Form(...),
     due_date: str = Form(...),
-    teacher_id: int = Form(...)
+    teacher_id: str = Form(...)
 ):
     if class_section not in ["CY2A", "CY2B", "IY2A", "IY2B"]:
         raise HTTPException(status_code=400, detail="Invalid section selection")
         
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO assignments (title, description, class_section, due_date, created_by_teacher_id)
-        VALUES (?, ?, ?, ?, ?)
-    """, (title, description, class_section, due_date, teacher_id))
-    conn.commit()
-    conn.close()
+    db = get_db()
+    db.assignments.insert_one({
+        "title": title,
+        "description": description,
+        "class_section": class_section,
+        "due_date": due_date,
+        "created_by_teacher_id": to_id(teacher_id)
+    })
     return {"status": "success", "message": "Assignment created successfully."}
 
 @app.get("/api/teacher/assignments")
-def teacher_get_assignments(teacher_id: int):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, title, description, class_section, due_date FROM assignments WHERE created_by_teacher_id = ? ORDER BY id DESC", (teacher_id,))
-    assignments = [dict(row) for row in cursor.fetchall()]
-    conn.close()
+def teacher_get_assignments(teacher_id: str):
+    db = get_db()
+    cursor = db.assignments.find({"created_by_teacher_id": to_id(teacher_id)}).sort([("_id", -1)])
+    assignments = []
+    for a in cursor:
+        assignments.append({
+            "id": str(a["_id"]),
+            "title": a["title"],
+            "description": a.get("description"),
+            "class_section": a.get("class_section"),
+            "due_date": a.get("due_date")
+        })
     return assignments
 
 @app.get("/api/teacher/submissions")
-def teacher_get_submissions(assignment_id: int):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT s.id as submission_id, s.file_name, s.extracted_text, s.submitted_at, s.marks, s.feedback,
-               u.full_name as student_name, u.section as student_section,
-               r.peer_similarity_pct, r.internet_similarity_pct, r.overall_plagiarism_pct, r.detailed_report_json
-        FROM submissions s
-        JOIN users u ON s.student_id = u.id
-        LEFT JOIN plagiarism_reports r ON r.submission_id = s.id
-        WHERE s.assignment_id = ?
-        ORDER BY u.full_name ASC
-    """, (assignment_id,))
-    rows = cursor.fetchall()
+def teacher_get_submissions(assignment_id: str):
+    db = get_db()
+    pipeline = [
+        {"$match": {"assignment_id": to_id(assignment_id)}},
+        {"$lookup": {
+            "from": "users",
+            "localField": "student_id",
+            "foreignField": "_id",
+            "as": "student"
+        }},
+        {"$unwind": {"path": "$student", "preserveNullAndEmptyArrays": True}},
+        {"$lookup": {
+            "from": "plagiarism_reports",
+            "localField": "_id",
+            "foreignField": "submission_id",
+            "as": "report"
+        }},
+        {"$unwind": {"path": "$report", "preserveNullAndEmptyArrays": True}},
+        {"$sort": {"student.full_name": 1}}
+    ]
     
+    rows = db.submissions.aggregate(pipeline)
     submissions = []
+    
     for row in rows:
-        d = dict(row)
-        if d["detailed_report_json"]:
-            d["detailed_report"] = json.loads(d["detailed_report_json"])
-        else:
-            d["detailed_report"] = None
-        del d["detailed_report_json"]
-        submissions.append(d)
+        report = row.get("report", {})
+        student = row.get("student", {})
         
-    conn.close()
+        detailed_report = report.get("detailed_report_json")
+        if isinstance(detailed_report, str):
+            detailed_report = json.loads(detailed_report)
+            
+        submissions.append({
+            "submission_id": str(row["_id"]),
+            "file_name": row["file_name"],
+            "extracted_text": row.get("extracted_text", ""),
+            "submitted_at": row["submitted_at"],
+            "marks": row.get("marks"),
+            "feedback": row.get("feedback"),
+            "student_name": student.get("full_name", ""),
+            "student_section": student.get("section", ""),
+            "peer_similarity_pct": report.get("peer_similarity_pct"),
+            "internet_similarity_pct": report.get("internet_similarity_pct"),
+            "overall_plagiarism_pct": report.get("overall_plagiarism_pct"),
+            "detailed_report": detailed_report
+        })
+        
     return submissions
 
 @app.post("/api/teacher/scan/{submission_id}")
-def teacher_scan_submission(submission_id: int):
-    """
-    High-performance plagiarism scan using:
-    - Batch TF-IDF  : one vectoriser fitted on ALL peers at once
-    - Pre-filtering : BERT/Winnowing only run on candidates > 3% TF-IDF
-    - Batch BERT    : all candidates encoded in a single model.encode() call
-    - Parallel N-gram + Winnowing via ThreadPoolExecutor
-    """
-    conn = get_db_connection()
-    cursor = conn.cursor()
+def teacher_scan_submission(submission_id: str):
+    db = get_db()
 
-    # ── 1. Fetch target submission ──────────────────────────────────────────
-    cursor.execute("""
-        SELECT s.id, s.extracted_text, s.student_id, s.assignment_id, u.full_name, u.section
-        FROM submissions s
-        JOIN users u ON s.student_id = u.id
-        WHERE s.id = ?
-    """, (submission_id,))
-    target = cursor.fetchone()
+    # 1. Fetch target submission
+    target = db.submissions.find_one({"_id": to_id(submission_id)})
     if not target:
-        conn.close()
         raise HTTPException(status_code=404, detail="Submission not found")
+        
+    student = db.users.find_one({"_id": target["student_id"]})
 
-    target_text = target["extracted_text"]
-
-    # Normalise whitespace once; reuse this clean version for all algorithms.
+    target_text = target.get("extracted_text", "")
     target_text_norm = re.sub(r"\s+", " ", target_text).strip()
 
-    # ── Handle empty document ───────────────────────────────────────────────
+    # Handle empty document
     if not target_text_norm:
-        cursor.execute("DELETE FROM plagiarism_reports WHERE submission_id = ?", (submission_id,))
-        cursor.execute("""
-            INSERT INTO plagiarism_reports
-                (submission_id, peer_similarity_pct, internet_similarity_pct,
-                 overall_plagiarism_pct, detailed_report_json)
-            VALUES (?, 0.0, 0.0, 0.0, ?)
-        """, (submission_id,
-               json.dumps({"peer_matches": [], "internet_matches": [],
-                           "message": "Document contains no extractable text."})))
-        conn.commit()
-        conn.close()
-        return {"status": "success",
-                "message": "Scan completed (Empty document)",
-                "results": {"overall_plagiarism": 0}}
+        db.plagiarism_reports.delete_many({"submission_id": to_id(submission_id)})
+        db.plagiarism_reports.insert_one({
+            "submission_id": to_id(submission_id),
+            "peer_similarity_pct": 0.0,
+            "internet_similarity_pct": 0.0,
+            "overall_plagiarism_pct": 0.0,
+            "detailed_report_json": {"peer_matches": [], "internet_matches": [], "message": "Document contains no extractable text."}
+        })
+        return {"status": "success", "message": "Scan completed (Empty document)", "results": {"overall_plagiarism": 0}}
 
-    # ── 2. Fetch all peer submissions ───────────────────────────────────────
-    cursor.execute("""
-        SELECT s.id as peer_sub_id, s.extracted_text, u.full_name as peer_name, u.section as peer_section
-        FROM submissions s
-        JOIN users u ON s.student_id = u.id
-        WHERE s.id != ? AND s.extracted_text != ''
-    """, (submission_id,))
-    peers = cursor.fetchall()
+    # 2. Fetch all peer submissions
+    peers_cur = db.submissions.find({
+        "_id": {"$ne": to_id(submission_id)}, 
+        "assignment_id": target["assignment_id"],
+        "extracted_text": {"$ne": "", "$exists": True}
+    })
+    
+    peers = []
+    for p in peers_cur:
+        peer_student = db.users.find_one({"_id": p["student_id"]})
+        peers.append({
+            "peer_sub_id": str(p["_id"]),
+            "extracted_text": p["extracted_text"],
+            "peer_name": peer_student["full_name"] if peer_student else "Unknown",
+            "peer_section": peer_student.get("section", "") if peer_student else ""
+        })
 
     peer_matches      = []
     highest_peer_score = 0.0
@@ -521,21 +553,16 @@ def teacher_scan_submission(submission_id: int):
     if peers:
         peer_texts = [re.sub(r"\s+", " ", p["extracted_text"]).strip() for p in peers]
 
-        # ── STEP A: Batch TF-IDF across ALL peers in one vectoriser pass ────
         tfidf_scores = calculate_tfidf_similarity_batch(target_text_norm, peer_texts)
-
-        # ── STEP B: Pre-filter — skip expensive algorithms for clearly unrelated docs
         candidate_indices  = [i for i, s in enumerate(tfidf_scores) if s >= _PREFILTER_THRESHOLD]
         candidate_texts    = [peer_texts[i] for i in candidate_indices]
 
-        # ── STEP C: Batch BERT — single model.encode() for all candidates ───
         bert_scores = [0.0] * len(peers)
         if candidate_texts:
             bert_batch = calculate_bert_similarity_batch(target_text_norm, candidate_texts)
             for idx, bscore in zip(candidate_indices, bert_batch):
                 bert_scores[idx] = bscore
 
-        # ── STEP D: Parallel Winnowing + N-gram for candidates ──────────────
         winnow_matcher   = WinnowingMatcher(k=12, w=4)
         ngram_scores     = [0.0] * len(peers)
         winnow_scores    = [0.0] * len(peers)
@@ -560,7 +587,6 @@ def teacher_scan_submission(submission_id: int):
                     except Exception as exc:
                         print(f"[Scan] Structural analysis error for peer {futures[fut]}: {exc}")
 
-        # ── STEP E: Combine all scores ───────────────────────────────────────
         for i, peer in enumerate(peers):
             combined = (
                 0.30 * tfidf_scores[i]
@@ -590,10 +616,10 @@ def teacher_scan_submission(submission_id: int):
 
         peer_matches.sort(key=lambda x: x["similarity_pct"], reverse=True)
 
-    # ── 3. Internet Plagiarism Scan (also uses batch algorithms internally) ─
+    # 3. Internet Plagiarism Scan
     highest_internet_score, internet_matches = search_internet_similarity(target_text_norm)
 
-    # ── 4. Overall score is the higher of peer vs internet ─────────────────
+    # 4. Overall score
     overall_plagiarism = max(highest_peer_score, highest_internet_score)
 
     detailed_report = {
@@ -613,18 +639,15 @@ def teacher_scan_submission(submission_id: int):
         },
     }
 
-    # ── 5. Persist report ──────────────────────────────────────────────────
-    cursor.execute("DELETE FROM plagiarism_reports WHERE submission_id = ?", (submission_id,))
-    cursor.execute("""
-        INSERT INTO plagiarism_reports
-            (submission_id, peer_similarity_pct, internet_similarity_pct,
-             overall_plagiarism_pct, detailed_report_json)
-        VALUES (?, ?, ?, ?, ?)
-    """, (submission_id, highest_peer_score, highest_internet_score,
-           overall_plagiarism, json.dumps(detailed_report)))
-
-    conn.commit()
-    conn.close()
+    # 5. Persist report
+    db.plagiarism_reports.delete_many({"submission_id": to_id(submission_id)})
+    db.plagiarism_reports.insert_one({
+        "submission_id": to_id(submission_id),
+        "peer_similarity_pct": highest_peer_score,
+        "internet_similarity_pct": highest_internet_score,
+        "overall_plagiarism_pct": overall_plagiarism,
+        "detailed_report_json": detailed_report
+    })
 
     return {
         "status":  "success",
@@ -638,115 +661,99 @@ def teacher_scan_submission(submission_id: int):
     }
 
 @app.post("/api/teacher/batch_scan")
-def teacher_batch_scan_submissions(assignment_id: int):
-    """
-    Batch-scan all submissions for an assignment.
-    Submissions are processed sequentially so that the BERT embedding cache
-    is warm after the first scan, making each subsequent scan significantly
-    faster (peers' embeddings are already cached).
-    """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM submissions WHERE assignment_id = ?", (assignment_id,))
-    subs = cursor.fetchall()
-    conn.close()
-
-    scanned_count  = 0
-    failed_count   = 0
+def teacher_batch_scan_submissions(assignment_id: str):
+    db = get_db()
+    subs = list(db.submissions.find({"assignment_id": to_id(assignment_id)}))
+    scanned_count = 0
+    failed_count = 0
 
     for sub in subs:
         try:
-            teacher_scan_submission(sub["id"])
+            teacher_scan_submission(str(sub["_id"]))
             scanned_count += 1
-            print(f"[BatchScan] Scanned submission {sub['id']} ({scanned_count}/{len(subs)})")
+            print(f"[BatchScan] Scanned submission {sub['_id']} ({scanned_count}/{len(subs)})")
         except Exception as exc:
             failed_count += 1
-            print(f"[BatchScan] Failed to scan submission {sub['id']}: {exc}")
+            print(f"[BatchScan] Failed to scan submission {sub['_id']}: {exc}")
 
     msg = f"Batch scan complete: {scanned_count} succeeded, {failed_count} failed."
-    return {"status": "success", "message": msg,
-            "scanned": scanned_count, "failed": failed_count}
+    return {"status": "success", "message": msg, "scanned": scanned_count, "failed": failed_count}
 
 @app.post("/api/teacher/grade/{submission_id}")
-def teacher_grade_submission(
-    submission_id: int,
-    marks: int = Form(...),
-    feedback: str = Form(...)
-):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM submissions WHERE id = ?", (submission_id,))
-    if not cursor.fetchone():
-        conn.close()
+def teacher_grade_submission(submission_id: str, marks: int = Form(...), feedback: str = Form(...)):
+    db = get_db()
+    if not db.submissions.find_one({"_id": to_id(submission_id)}):
         raise HTTPException(status_code=404, detail="Submission not found")
         
-    cursor.execute("UPDATE submissions SET marks = ?, feedback = ? WHERE id = ?", (marks, feedback, submission_id))
-    conn.commit()
-    conn.close()
+    db.submissions.update_one({"_id": to_id(submission_id)}, {"$set": {"marks": marks, "feedback": feedback}})
     return {"status": "success", "message": "Grade and feedback saved successfully."}
 
 @app.get("/api/teacher/analytics")
-def teacher_get_analytics(teacher_id: int):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+def teacher_get_analytics(teacher_id: str):
+    db = get_db()
     
-    # 1. Fetch average plagiarism and average grade per class section (CY2A, CY2B, IY2A, IY2B)
     sections = ["CY2A", "CY2B", "IY2A", "IY2B"]
     section_data = []
     
     for sect in sections:
-        cursor.execute("""
-            SELECT AVG(s.marks) as avg_marks, AVG(r.overall_plagiarism_pct) as avg_plagiarism, COUNT(s.id) as sub_count
-            FROM submissions s
-            JOIN users u ON s.student_id = u.id
-            JOIN assignments a ON s.assignment_id = a.id
-            LEFT JOIN plagiarism_reports r ON r.submission_id = s.id
-            WHERE u.section = ? AND a.created_by_teacher_id = ?
-        """, (sect, teacher_id))
-        res = cursor.fetchone()
-        section_data.append({
-            "section": sect,
-            "avg_marks": round(res["avg_marks"] or 0, 1),
-            "avg_plagiarism": round(res["avg_plagiarism"] or 0, 1),
-            "submission_count": res["sub_count"]
-        })
+        pipeline = [
+            {"$lookup": {"from": "users", "localField": "student_id", "foreignField": "_id", "as": "user"}},
+            {"$unwind": "$user"},
+            {"$lookup": {"from": "assignments", "localField": "assignment_id", "foreignField": "_id", "as": "assignment"}},
+            {"$unwind": "$assignment"},
+            {"$match": {"user.section": sect, "assignment.created_by_teacher_id": to_id(teacher_id)}},
+            {"$lookup": {"from": "plagiarism_reports", "localField": "_id", "foreignField": "submission_id", "as": "report"}},
+            {"$unwind": {"path": "$report", "preserveNullAndEmptyArrays": True}},
+            {"$group": {
+                "_id": None,
+                "avg_marks": {"$avg": "$marks"},
+                "avg_plagiarism": {"$avg": "$report.overall_plagiarism_pct"},
+                "sub_count": {"$sum": 1}
+            }}
+        ]
+        res = list(db.submissions.aggregate(pipeline))
+        if res:
+            r = res[0]
+            section_data.append({
+                "section": sect,
+                "avg_marks": round(r.get("avg_marks") or 0, 1),
+                "avg_plagiarism": round(r.get("avg_plagiarism") or 0, 1),
+                "submission_count": r.get("sub_count") or 0
+            })
+        else:
+            section_data.append({"section": sect, "avg_marks": 0.0, "avg_plagiarism": 0.0, "submission_count": 0})
+            
+    pipeline_risk = [
+        {"$lookup": {"from": "assignments", "localField": "assignment_id", "foreignField": "_id", "as": "assignment"}},
+        {"$unwind": "$assignment"},
+        {"$match": {"assignment.created_by_teacher_id": to_id(teacher_id)}},
+        {"$lookup": {"from": "plagiarism_reports", "localField": "_id", "foreignField": "submission_id", "as": "report"}},
+        {"$unwind": "$report"},
+        {"$lookup": {"from": "users", "localField": "student_id", "foreignField": "_id", "as": "user"}},
+        {"$unwind": {"path": "$user", "preserveNullAndEmptyArrays": True}}
+    ]
+    all_reports = list(db.submissions.aggregate(pipeline_risk))
+    
+    low, med, high = 0, 0, 0
+    correlations = []
+    
+    for r in all_reports:
+        pct = r["report"].get("overall_plagiarism_pct", 0)
+        if pct < 20: low += 1
+        elif pct <= 50: med += 1
+        else: high += 1
         
-    # 2. Plagiarism risk levels count
-    # Low: < 20%, Medium: 20-50%, High: > 50%
-    cursor.execute("""
-        SELECT 
-            SUM(CASE WHEN r.overall_plagiarism_pct < 20 THEN 1 ELSE 0 END) as low_risk,
-            SUM(CASE WHEN r.overall_plagiarism_pct >= 20 AND r.overall_plagiarism_pct <= 50 THEN 1 ELSE 0 END) as med_risk,
-            SUM(CASE WHEN r.overall_plagiarism_pct > 50 THEN 1 ELSE 0 END) as high_risk,
-            COUNT(s.id) as total_scanned
-        FROM submissions s
-        JOIN assignments a ON s.assignment_id = a.id
-        JOIN plagiarism_reports r ON r.submission_id = s.id
-        WHERE a.created_by_teacher_id = ?
-    """, (teacher_id,))
-    risk_res = cursor.fetchone()
-    
-    risk_distribution = {
-        "low": risk_res["low_risk"] or 0,
-        "medium": risk_res["med_risk"] or 0,
-        "high": risk_res["high_risk"] or 0,
-        "total": risk_res["total_scanned"] or 0
-    }
-    
-    # 3. Marks vs. Plagiarism scatter correlation details
-    cursor.execute("""
-        SELECT u.full_name as student_name, s.marks, r.overall_plagiarism_pct as plagiarism
-        FROM submissions s
-        JOIN users u ON s.student_id = u.id
-        JOIN assignments a ON s.assignment_id = a.id
-        JOIN plagiarism_reports r ON r.submission_id = s.id
-        WHERE a.created_by_teacher_id = ? AND s.marks IS NOT NULL
-        ORDER BY s.marks ASC
-    """, (teacher_id,))
-    correlation_rows = cursor.fetchall()
-    correlations = [dict(row) for row in correlation_rows]
-    
-    conn.close()
+        if r.get("marks") is not None:
+            correlations.append({
+                "student_name": r.get("user", {}).get("full_name", "Unknown"),
+                "marks": r["marks"],
+                "plagiarism": pct
+            })
+            
+    # Sort correlations by marks to make charts clean
+    correlations.sort(key=lambda x: x["marks"])
+        
+    risk_distribution = {"low": low, "medium": med, "high": high, "total": len(all_reports)}
     
     return {
         "section_data": section_data,
