@@ -9,3 +9,4 @@ scikit-learn>=1.4.0
 sentence-transformers>=2.5.0
 matplotlib>=3.8.0
 pymongo[srv]>=4.6.0
+easyocr>=1.7.1

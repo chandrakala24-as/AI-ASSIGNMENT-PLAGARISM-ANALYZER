@@ -37,6 +37,33 @@
   --font-family-body: 'Inter', sans-serif;
   
   --sidebar-width: 260px;
+  
+  /* Grid Background Variables */
+  --grid-bg-start: #f8fafc;
+  --grid-bg-mid: #f1f5f9;
+  --grid-bg-end: #e2e8f0;
+  --grid-line: rgba(0, 0, 0, 0.02);
+  --grid-glow-opacity: 1;
+}
+
+/* Dark Mode Variables */
+:root[data-theme="dark"] {
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-glass: rgba(15, 23, 42, 0.75);
+  --bg-glass-hover: rgba(15, 23, 42, 0.95);
+  --border-glass: rgba(255, 255, 255, 0.08);
+  --border-glass-light: rgba(255, 255, 255, 0.15);
+  
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #64748b;
+  
+  --grid-bg-start: #0f172a;
+  --grid-bg-mid: #141e33;
+  --grid-bg-end: #1e293b;
+  --grid-line: rgba(255, 255, 255, 0.02);
+  --grid-glow-opacity: 0.5;
 }
 
 /* Base Styles */
@@ -79,14 +106,14 @@ body {
   width: 100%;
   height: 100%;
   z-index: -2;
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 50%, #e2e8f0 100%);
+  background: linear-gradient(135deg, var(--grid-bg-start) 0%, var(--grid-bg-mid) 50%, var(--grid-bg-end) 100%);
   background-image: 
-    radial-gradient(circle at 15% 25%, rgba(217, 70, 239, 0.15) 0%, transparent 45%),
-    radial-gradient(circle at 85% 75%, rgba(0, 229, 255, 0.15) 0%, transparent 45%),
-    radial-gradient(circle at 50% 50%, rgba(255, 107, 203, 0.1) 0%, transparent 50%),
-    radial-gradient(circle at 10% 90%, rgba(34, 255, 110, 0.1) 0%, transparent 40%),
-    linear-gradient(rgba(0, 0, 0, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 0, 0, 0.02) 1px, transparent 1px);
+    radial-gradient(circle at 15% 25%, rgba(217, 70, 239, calc(0.15 * var(--grid-glow-opacity))) 0%, transparent 45%),
+    radial-gradient(circle at 85% 75%, rgba(0, 229, 255, calc(0.15 * var(--grid-glow-opacity))) 0%, transparent 45%),
+    radial-gradient(circle at 50% 50%, rgba(255, 107, 203, calc(0.1 * var(--grid-glow-opacity))) 0%, transparent 50%),
+    radial-gradient(circle at 10% 90%, rgba(34, 255, 110, calc(0.1 * var(--grid-glow-opacity))) 0%, transparent 40%),
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
   background-size: 100% 100%, 100% 100%, 100% 100%, 100% 100%, 40px 40px, 40px 40px;
 }
 

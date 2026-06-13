@@ -2,6 +2,36 @@
 
 const API_BASE = "";
 
+// Theme Management
+function initializeTheme() {
+    const savedTheme = localStorage.getItem("theme");
+    // Default to dark theme if not saved, or use saved theme
+    const themeToApply = savedTheme || "dark";
+    document.documentElement.setAttribute("data-theme", themeToApply);
+    
+    // Auto-update toggle button icon if it exists
+    const toggleIcon = document.getElementById("theme-toggle-icon");
+    if (toggleIcon) {
+        toggleIcon.className = themeToApply === "dark" ? "fa-solid fa-moon" : "fa-solid fa-sun";
+    }
+}
+
+function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute("data-theme");
+    const newTheme = currentTheme === "dark" ? "light" : "dark";
+    
+    document.documentElement.setAttribute("data-theme", newTheme);
+    localStorage.setItem("theme", newTheme);
+    
+    const toggleIcon = document.getElementById("theme-toggle-icon");
+    if (toggleIcon) {
+        toggleIcon.className = newTheme === "dark" ? "fa-solid fa-moon" : "fa-solid fa-sun";
+    }
+}
+
+// Initialize theme immediately
+initializeTheme();
+
 // Check if user is logged in
 function checkAuth(allowedRoles = []) {
     const userStr = localStorage.getItem("currentUser");
