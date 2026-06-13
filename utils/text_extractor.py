@@ -42,6 +42,39 @@ def get_ocr_reader():
             _ocr_reader = False
     return _ocr_reader
 
+def extract_text_ocr_space_image(pil_img: Image.Image) -> str:
+    """Uses OCR.space free API for lightweight OCR offloading, perfect for 512MB RAM servers."""
+    try:
+        import base64
+        import urllib.request
+        import urllib.parse
+        import json
+        import io
+        
+        # Resize to prevent hitting payload limits
+        img_copy = pil_img.copy()
+        img_copy.thumbnail((1200, 1200))
+        buffer = io.BytesIO()
+        img_copy.convert('RGB').save(buffer, format="JPEG", quality=80)
+        encoded_string = base64.b64encode(buffer.getvalue()).decode('utf-8')
+        
+        url = 'https://api.ocr.space/parse/image'
+        data = urllib.parse.urlencode({
+            'apikey': 'helloworld',
+            'base64image': 'data:image/jpeg;base64,' + encoded_string,
+            'language': 'eng',
+            'scale': 'true'
+        }).encode('utf-8')
+        
+        req = urllib.request.Request(url, data=data)
+        with urllib.request.urlopen(req, timeout=15) as response:
+            result = json.loads(response.read().decode())
+            if result.get('ParsedResults'):
+                return " ".join([p.get('ParsedText', '') for p in result.get('ParsedResults') if p.get('ParsedText')])
+    except Exception as e:
+        print(f"[OCR] OCR Space API error: {e}")
+    return ""
+
 def extract_text_from_pdf(file_path: str) -> str:
     """Extracts all text content from a PDF file, with an OCR fallback for scanned pages."""
     text_content = []
@@ -81,7 +114,13 @@ def extract_text_from_pdf(file_path: str) -> str:
                             except Exception as t_err:
                                 print(f"[OCR] PyTesseract failed on PDF image: {t_err}")
                         
-                        # 2. Try EasyOCR if PyTesseract yielded nothing
+                        # 2. Try OCR.space API (Zero RAM usage)
+                        if not img_text.strip():
+                            img_text = extract_text_ocr_space_image(pil_img)
+                            if img_text.strip():
+                                print("[OCR] Successfully used OCR.space Cloud API.")
+                                
+                        # 3. Try EasyOCR as last resort if local model is desired
                         if not img_text.strip():
                             if not ocr_reader and not HAS_TESSERACT:
                                 ocr_reader = get_ocr_reader()
@@ -212,7 +251,17 @@ def extract_text_from_image(file_path: str) -> str:
         except Exception as ocr_err:
             print(f"PyTesseract execution failed: {ocr_err}")
 
-    # 2. Try EasyOCR fallback
+    # 2. Try OCR.space Cloud API
+    try:
+        img = Image.open(file_path)
+        text_result = extract_text_ocr_space_image(img)
+        if text_result.strip():
+            print("[OCR] Img successfully processed using OCR.space Cloud API.")
+            return text_result
+    except Exception as api_err:
+        print(f"[OCR] Cloud API extraction failed: {api_err}")
+
+    # 3. Try EasyOCR fallback
     try:
         reader = get_ocr_reader()
         if reader:
