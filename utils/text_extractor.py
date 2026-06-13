@@ -44,6 +44,15 @@ try:
 except ImportError:
     HAS_PPTX = False
 
+try:
+    import easyocr
+    import numpy as np
+    # Disable local EasyOCR on Render free tier or if requested, to avoid RAM OOM crashes.
+    DISABLE_LOCAL_OCR = os.getenv("DISABLE_LOCAL_OCR", "false").lower() == "true" or os.getenv("RENDER") == "true"
+    HAS_EASYOCR = not DISABLE_LOCAL_OCR
+except ImportError:
+    HAS_EASYOCR = False
+
 # ─── OCR.space cloud OCR (primary OCR backend – zero local RAM needed) ────────
 
 _OCR_SPACE_KEY = os.getenv("OCR_SPACE_API_KEY", "helloworld")  # free public key
@@ -99,16 +108,55 @@ def _ocr_space_image(pil_img: Image.Image, language: str = "eng") -> str:
         return ""
 
 
+_EASYOCR_READER = None
+
+def _ocr_image(pil_img: Image.Image, language: str = "eng") -> str:
+    """
+    Perform OCR on a PIL Image.
+    First tries local EasyOCR if available and not explicitly disabled.
+    Otherwise, falls back to OCR.space cloud API.
+    """
+    global _EASYOCR_READER
+    if HAS_EASYOCR:
+        try:
+            if _EASYOCR_READER is None:
+                print("[OCR] Initialising local EasyOCR reader (this may take a few seconds on first run)...")
+                _EASYOCR_READER = easyocr.Reader(['en'], gpu=False)
+            
+            # Convert PIL Image to RGB NumPy array as expected by EasyOCR
+            img_np = np.array(pil_img.convert("RGB"))
+            result = _EASYOCR_READER.readtext(img_np, detail=0)
+            text = " ".join(result).strip()
+            if text:
+                print(f"[OCR] Extracted {len(text.split())} words via local EasyOCR.")
+                return text
+        except Exception as exc:
+            print(f"[OCR] Local EasyOCR failed: {exc}. Falling back to cloud OCR.")
+
+    # Fallback to OCR.space cloud API
+    return _ocr_space_image(pil_img, language)
+
+
 # ─── PDF rendering for scanned pages (uses pypdf + Pillow, no extra deps) ────
 
 def _render_pdf_page_to_pil(page) -> Optional[Image.Image]:
     """
-    Extract the first embedded image from a pypdf page as a PIL Image.
+    Extract the largest embedded image from a pypdf page as a PIL Image.
     Returns None if no images are present.
     """
     try:
+        largest_img = None
+        largest_size = 0
         for img_obj in page.images:
-            return Image.open(io.BytesIO(img_obj.data))
+            try:
+                size = len(img_obj.data)
+                if size > largest_size:
+                    largest_size = size
+                    largest_img = img_obj
+            except Exception:
+                continue
+        if largest_img:
+            return Image.open(io.BytesIO(largest_img.data))
     except Exception as exc:
         print(f"[PDF] Could not render page image: {exc}")
     return None
@@ -153,7 +201,7 @@ def extract_text_from_pdf(file_path: str) -> str:
                 print(f"[PDF] Page {page_num}: no embedded image found, skipping.")
                 continue
 
-            text = _ocr_space_image(pil_img)
+            text = _ocr_image(pil_img)
             if text:
                 ocr_parts.append(text)
             else:
@@ -258,7 +306,7 @@ def extract_text_from_image(file_path: str) -> str:
     """Send image directly to OCR.space cloud API."""
     try:
         pil_img = Image.open(file_path)
-        text = _ocr_space_image(pil_img)
+        text = _ocr_image(pil_img)
         return text
     except Exception as exc:
         print(f"[IMG] Failed to open image for OCR: {exc}")
