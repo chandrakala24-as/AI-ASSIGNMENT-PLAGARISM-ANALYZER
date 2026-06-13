@@ -120,7 +120,7 @@ async function loadSubmissions() {
                 </td>
                 <td style="text-align: right;">
                     ${sub.overall_plagiarism_pct !== null ? `
-                        <button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.8rem;" onclick="viewReport(${sub.submission_id})">
+                        <button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.8rem;" onclick="viewReport('${sub.submission_id}')">
                             <i class="fa-solid fa-square-poll-vertical"></i> View Report
                         </button>
                     ` : `

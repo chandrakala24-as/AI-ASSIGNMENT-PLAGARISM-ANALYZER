@@ -148,7 +148,7 @@ async function loadSubmissionsList() {
                 if (pct >= 50) badgeClass = "badge-red";
                 else if (pct >= 20) badgeClass = "badge-yellow";
                 
-                plagText = `<span class="badge ${badgeClass}" style="cursor:pointer;" onclick="openGraderModal(${sub.submission_id})">${pct}% Plag</span>`;
+                plagText = `<span class="badge ${badgeClass}" style="cursor:pointer;" onclick="openGraderModal('${sub.submission_id}')">${pct}% Plag</span>`;
             }
             
             const tr = document.createElement("tr");
@@ -161,10 +161,10 @@ async function loadSubmissionsList() {
                     ${sub.marks !== null ? `<span style="color: var(--accent-green);">${sub.marks} / 100</span>` : '<span style="color: var(--text-muted); font-size: 0.85rem;">Ungraded</span>'}
                 </td>
                 <td style="text-align: right; display: flex; justify-content: flex-end; gap: 8px;">
-                    <button class="btn btn-secondary btn-icon" onclick="runPlagiarismScan(${sub.submission_id}, '${sub.student_name}')" title="Scan Assignment">
+                    <button class="btn btn-secondary btn-icon" onclick="runPlagiarismScan('${sub.submission_id}', '${sub.student_name}')" title="Scan Assignment">
                         <i class="fa-solid fa-wand-magic-sparkles" style="color: var(--accent-cyan);"></i>
                     </button>
-                    <button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.8rem;" onclick="openGraderModal(${sub.submission_id})" ${sub.overall_plagiarism_pct === null ? 'disabled' : ''}>
+                    <button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.8rem;" onclick="openGraderModal('${sub.submission_id}')" ${sub.overall_plagiarism_pct === null ? 'disabled' : ''}>
                         <i class="fa-solid fa-pen-nib"></i> Grade
                     </button>
                 </td>
