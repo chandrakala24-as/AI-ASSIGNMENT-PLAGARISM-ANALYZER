@@ -19,17 +19,18 @@ def to_id(id_val):
         try: return ObjectId(id_val)
         except: pass
     return str(id_val)
+
+# Lightweight imports only — heavy ML libs (torch, transformers, easyocr)
+# are NEVER imported at module level to keep Render free-tier RAM < 512 MB.
 from utils.text_extractor import extract_text
-from utils.web_search import search_internet_similarity
-from algorithms.tfidf_cosine import calculate_tfidf_similarity, calculate_tfidf_similarity_batch
+from algorithms.tfidf_cosine import calculate_tfidf_similarity_batch
 from algorithms.ngram_matching import calculate_ngram_similarity
 from algorithms.winnowing import WinnowingMatcher
-from algorithms.bert_semantic import calculate_bert_similarity, calculate_bert_similarity_batch, get_bert_model
 
 # Pre-filter: only run expensive algorithms on pairs exceeding this TF-IDF score.
 _PREFILTER_THRESHOLD = 0.03   # 3 %
 _REPORT_THRESHOLD    = 5.0    # minimum combined % to include in report
-_MAX_SCAN_WORKERS    = 8      # max parallel threads for structural analysis
+_MAX_SCAN_WORKERS    = 2      # keep thread count low on free tier
 
 # ─────────────────────────────────────────────────────────────────────────────
 # In-memory submission processing status tracker
@@ -59,32 +60,15 @@ os.makedirs(STATIC_DIR, exist_ok=True)
 os.makedirs(os.path.join(STATIC_DIR, "css"), exist_ok=True)
 os.makedirs(os.path.join(STATIC_DIR, "js"), exist_ok=True)
 
-# Initialize Database on Startup and pre-warm BERT model
+# Initialize Database on Startup
 @app.on_event("startup")
 def startup_event():
     init_db()
-    print("Database initialised.")
-    
-    # Check if BERT model is disabled to conserve memory (e.g., on Render free tier)
-    from algorithms.bert_semantic import DISABLE_BERT
-    if not DISABLE_BERT:
-        # Pre-warm BERT in a background thread so the FIRST plagiarism scan is
-        # instant rather than waiting ~40 s for the model to load.
-        _thread_pool.submit(_preload_bert)
-        print("BERT model warming up in background...")
-    else:
-        print("[Startup] Lightweight mode: skipping BERT model pre-warming to conserve RAM.")
+    print("[Startup] Database initialised.")
+    print("[Startup] Lightweight mode active — torch/transformers/easyocr NOT loaded (Render free tier).")
 
-def _preload_bert():
-    """Loads and caches the BERT model at startup (runs in thread pool)."""
-    try:
-        get_bert_model()
-        print("[Startup] BERT model ready.")
-    except Exception as exc:
-        print(f"[Startup] BERT pre-warm failed: {exc}")
-
-# Shared thread pool for background extraction tasks
-_thread_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="upload-worker")
+# Shared thread pool — keep workers LOW to avoid RAM spikes on free tier
+_thread_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="upload-worker")
 
 # Redirect root to static landing page
 @app.get("/")
@@ -570,11 +554,10 @@ def teacher_scan_submission(submission_id: str):
     target = db.submissions.find_one({"_id": to_id(submission_id)})
     if not target:
         raise HTTPException(status_code=404, detail="Submission not found")
-        
-    student = db.users.find_one({"_id": target["student_id"]})
 
     target_text = target.get("extracted_text", "")
     target_text_norm = re.sub(r"\s+", " ", target_text).strip()
+    print(f"[Scan] submission={submission_id} text_len={len(target_text_norm)} words={len(target_text_norm.split())}")
 
     # Handle empty document
     if not target_text_norm:
@@ -584,17 +567,20 @@ def teacher_scan_submission(submission_id: str):
             "peer_similarity_pct": 0.0,
             "internet_similarity_pct": 0.0,
             "overall_plagiarism_pct": 0.0,
-            "detailed_report_json": {"peer_matches": [], "internet_matches": [], "message": "Document contains no extractable text."}
+            "detailed_report_json": {
+                "peer_matches": [],
+                "internet_matches": [],
+                "message": "Document contains no extractable text. Please re-upload a readable file."
+            }
         })
-        return {"status": "success", "message": "Scan completed (Empty document)", "results": {"overall_plagiarism": 0}}
+        return {"status": "success", "message": "Scan completed (empty document)", "results": {"overall_plagiarism": 0}}
 
-    # 2. Fetch all peer submissions
+    # 2. Peer similarity — TF-IDF + N-gram + Winnowing (no BERT, no torch)
     peers_cur = db.submissions.find({
-        "_id": {"$ne": to_id(submission_id)}, 
+        "_id": {"$ne": to_id(submission_id)},
         "assignment_id": target["assignment_id"],
         "extracted_text": {"$ne": "", "$exists": True}
     })
-    
     peers = []
     for p in peers_cur:
         peer_student = db.users.find_one({"_id": p["student_id"]})
@@ -605,59 +591,46 @@ def teacher_scan_submission(submission_id: str):
             "peer_section": peer_student.get("section", "") if peer_student else ""
         })
 
-    peer_matches      = []
+    peer_matches = []
     highest_peer_score = 0.0
 
     if peers:
         peer_texts = [re.sub(r"\s+", " ", p["extracted_text"]).strip() for p in peers]
-
         tfidf_scores = calculate_tfidf_similarity_batch(target_text_norm, peer_texts)
-        candidate_indices  = [i for i, s in enumerate(tfidf_scores) if s >= _PREFILTER_THRESHOLD]
-        candidate_texts    = [peer_texts[i] for i in candidate_indices]
+        candidate_indices = [i for i, s in enumerate(tfidf_scores) if s >= _PREFILTER_THRESHOLD]
 
-        bert_scores = [0.0] * len(peers)
-        if candidate_texts:
-            bert_batch = calculate_bert_similarity_batch(target_text_norm, candidate_texts)
-            for idx, bscore in zip(candidate_indices, bert_batch):
-                bert_scores[idx] = bscore
-
-        winnow_matcher   = WinnowingMatcher(k=12, w=4)
-        ngram_scores     = [0.0] * len(peers)
-        winnow_scores    = [0.0] * len(peers)
-        winnow_spans_all = [[]   for _ in peers]
+        winnow_matcher = WinnowingMatcher(k=12, w=4)
+        ngram_scores = [0.0] * len(peers)
+        winnow_scores = [0.0] * len(peers)
+        winnow_spans_all = [[] for _ in peers]
 
         def _structural(idx: int):
             text = peer_texts[idx]
-            ng_s          = calculate_ngram_similarity(target_text_norm, text)
-            wn_s, spans   = winnow_matcher.calculate_similarity(target_text_norm, text)
+            ng_s = calculate_ngram_similarity(target_text_norm, text)
+            wn_s, spans = winnow_matcher.calculate_similarity(target_text_norm, text)
             return idx, ng_s, wn_s, spans
 
-        if candidate_indices:
-            n_workers = min(_MAX_SCAN_WORKERS, len(candidate_indices))
-            with ThreadPoolExecutor(max_workers=n_workers) as pool:
-                futures = {pool.submit(_structural, i): i for i in candidate_indices}
-                for fut in as_completed(futures):
-                    try:
-                        idx, ng_s, wn_s, spans = fut.result()
-                        ngram_scores[idx]      = ng_s
-                        winnow_scores[idx]     = wn_s
-                        winnow_spans_all[idx]  = spans
-                    except Exception as exc:
-                        print(f"[Scan] Structural analysis error for peer {futures[fut]}: {exc}")
+        for i in candidate_indices:
+            try:
+                idx, ng_s, wn_s, spans = _structural(i)
+                ngram_scores[idx] = ng_s
+                winnow_scores[idx] = wn_s
+                winnow_spans_all[idx] = spans
+            except Exception as exc:
+                print(f"[Scan] Structural error peer {i}: {exc}")
 
         for i, peer in enumerate(peers):
+            # 3-algorithm weighted score (no BERT = no torch RAM spike)
             combined = (
-                0.30 * tfidf_scores[i]
-                + 0.20 * ngram_scores[i]
-                + 0.20 * winnow_scores[i]
-                + 0.30 * bert_scores[i]
+                0.40 * tfidf_scores[i]
+                + 0.30 * ngram_scores[i]
+                + 0.30 * winnow_scores[i]
             )
             pct = round(combined * 100.0, 1)
 
             if pct >= _REPORT_THRESHOLD:
                 if pct > highest_peer_score:
                     highest_peer_score = pct
-
                 peer_matches.append({
                     "peer_submission_id": peer["peer_sub_id"],
                     "student_name":       peer["peer_name"],
@@ -667,51 +640,79 @@ def teacher_scan_submission(submission_id: str):
                         "tfidf":     round(tfidf_scores[i]  * 100.0, 1),
                         "ngram":     round(ngram_scores[i]  * 100.0, 1),
                         "winnowing": round(winnow_scores[i] * 100.0, 1),
-                        "bert":      round(bert_scores[i]   * 100.0, 1),
                     },
                     "matched_spans": winnow_spans_all[i][:10],
                 })
-
         peer_matches.sort(key=lambda x: x["similarity_pct"], reverse=True)
+        print(f"[Scan] Peer scan done. highest={highest_peer_score}%, matches={len(peer_matches)}")
 
-    # 3. Internet Plagiarism Scan
-    highest_internet_score, internet_matches = search_internet_similarity(target_text_norm)
+    # 3. Internet similarity — compare against seeded mock sources (no external calls)
+    highest_internet_score = 0.0
+    internet_matches = []
+    sources = list(db.mock_internet_sources.find())
+    if sources and target_text_norm:
+        src_texts = [s["content"] for s in sources]
+        inet_tfidf = calculate_tfidf_similarity_batch(target_text_norm, src_texts)
+        winnow_inet = WinnowingMatcher(k=8, w=4)
+        for i, src in enumerate(sources):
+            tfscore = inet_tfidf[i]
+            if tfscore < _PREFILTER_THRESHOLD:
+                continue
+            try:
+                ng_s = calculate_ngram_similarity(target_text_norm, src["content"])
+                wn_s, spans = winnow_inet.calculate_similarity(target_text_norm, src["content"])
+            except Exception:
+                ng_s, wn_s, spans = 0.0, 0.0, []
+            combined = 0.40 * tfscore + 0.30 * ng_s + 0.30 * wn_s
+            pct = round(combined * 100.0, 1)
+            if pct >= _REPORT_THRESHOLD:
+                if pct > highest_internet_score:
+                    highest_internet_score = pct
+                internet_matches.append({
+                    "source_id":      str(src["_id"]),
+                    "title":          src["title"],
+                    "url":            src["url"],
+                    "similarity_pct": pct,
+                    "scores": {
+                        "tfidf":     round(tfscore * 100.0, 1),
+                        "ngram":     round(ng_s    * 100.0, 1),
+                        "winnowing": round(wn_s    * 100.0, 1),
+                    },
+                    "matched_spans": spans[:10],
+                })
+        internet_matches.sort(key=lambda x: x["similarity_pct"], reverse=True)
+        print(f"[Scan] Internet scan done. highest={highest_internet_score}%")
 
     # 4. Overall score
     overall_plagiarism = max(highest_peer_score, highest_internet_score)
+    print(f"[Scan] Overall plagiarism for {submission_id}: {overall_plagiarism}%")
 
     detailed_report = {
-        "peer_matches":    peer_matches,
+        "peer_matches":     peer_matches,
         "internet_matches": internet_matches,
         "metadata": {
-            "scanned_at":       datetime.now().isoformat(),
-            "target_word_count": len(target_text_norm.split()),
-            "peers_scanned":    len(peers),
-            "peers_deep_scanned": len(candidate_indices) if peers else 0,
-            "algorithms_used": [
-                "TF-IDF Cosine (Batch)",
-                "N-gram Jaccard (Parallel)",
-                "Winnowing Fingerprinting (Parallel)",
-                "BERT Semantic Similarity (Batch + Cache)",
-            ],
+            "scanned_at":         datetime.now().isoformat(),
+            "target_word_count":  len(target_text_norm.split()),
+            "peers_scanned":      len(peers),
+            "algorithms_used":    ["TF-IDF Cosine", "N-gram Jaccard", "Winnowing Fingerprinting"],
         },
     }
 
     # 5. Persist report
     db.plagiarism_reports.delete_many({"submission_id": to_id(submission_id)})
     db.plagiarism_reports.insert_one({
-        "submission_id": to_id(submission_id),
-        "peer_similarity_pct": highest_peer_score,
+        "submission_id":          to_id(submission_id),
+        "peer_similarity_pct":    highest_peer_score,
         "internet_similarity_pct": highest_internet_score,
         "overall_plagiarism_pct": overall_plagiarism,
-        "detailed_report_json": detailed_report
+        "detailed_report_json":   detailed_report
     })
 
     return {
         "status":  "success",
         "message": "Scan completed.",
         "results": {
-            "peer_similarity":    highest_peer_score,
+            "peer_similarity":     highest_peer_score,
             "internet_similarity": highest_internet_score,
             "overall_plagiarism":  overall_plagiarism,
             "detailed_report":     detailed_report,
