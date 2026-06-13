@@ -20,12 +20,6 @@ warnings.filterwarnings("ignore", category=UserWarning, message=".*unauthenticat
 warnings.filterwarnings("ignore", message=".*unauthenticated.*")
 warnings.filterwarnings("ignore", message=".*position_ids.*")
 
-try:
-    from transformers.utils import logging as transformers_logging
-    transformers_logging.set_verbosity_error()
-except ImportError:
-    pass
-
 import re
 import numpy as np
 import hashlib
@@ -62,26 +56,36 @@ def _clean_for_bert(text: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 # Model loading
 # ─────────────────────────────────────────────────────────────────────────────
-try:
-    from sentence_transformers import SentenceTransformer
-    import torch  # noqa: F401 – imported to confirm torch availability
+DISABLE_BERT = (
+    os.environ.get("DISABLE_BERT", "false").lower() == "true"
+    or os.environ.get("LIGHTWEIGHT_MODE", "false").lower() == "true"
+    or os.environ.get("RENDER") == "true"
+)
 
-    def get_bert_model() -> Optional[SentenceTransformer]:
-        global _model_instance, MODEL_LOADED
-        if _model_instance is not None:
-            return _model_instance
-        try:
-            # ~80 MB model; cached in ~/.cache/huggingface after first download.
-            _model_instance = SentenceTransformer("all-MiniLM-L6-v2")
-            MODEL_LOADED = True
-            print("[BERT] Model loaded: all-MiniLM-L6-v2")
-            return _model_instance
-        except Exception as exc:
-            print(f"[BERT] Failed to load model: {exc}. Falling back to semantic proxy.")
-            MODEL_LOADED = False
+if not DISABLE_BERT:
+    try:
+        from sentence_transformers import SentenceTransformer
+        import torch  # noqa: F401 – imported to confirm torch availability
+
+        def get_bert_model() -> Optional[SentenceTransformer]:
+            global _model_instance, MODEL_LOADED
+            if _model_instance is not None:
+                return _model_instance
+            try:
+                # ~80 MB model; cached in ~/.cache/huggingface after first download.
+                _model_instance = SentenceTransformer("all-MiniLM-L6-v2")
+                MODEL_LOADED = True
+                print("[BERT] Model loaded: all-MiniLM-L6-v2")
+                return _model_instance
+            except Exception as exc:
+                print(f"[BERT] Failed to load model: {exc}. Falling back to semantic proxy.")
+                MODEL_LOADED = False
+                return None
+
+    except ImportError:
+        def get_bert_model():
             return None
-
-except ImportError:
+else:
     def get_bert_model():
         return None
 

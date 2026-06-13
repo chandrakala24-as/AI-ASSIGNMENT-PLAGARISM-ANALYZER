@@ -90,7 +90,15 @@ def extract_text_from_pdf(file_path: str) -> str:
                     return ocr_text
         except Exception as ocr_err:
             print(f"[OCR] PDF OCR processing failed: {ocr_err}")
-            
+        finally:
+            import gc
+            gc.collect()
+            import sys
+            if 'torch' in sys.modules:
+                try:
+                    sys.modules['torch'].cuda.empty_cache()
+                except Exception:
+                    pass
     return combined_text
 
 def extract_text_from_docx_fallback(file_path: str) -> str:
@@ -197,6 +205,15 @@ def extract_text_from_image(file_path: str) -> str:
                 return text_result
     except Exception as easyocr_err:
         print(f"[OCR] EasyOCR extraction failed: {easyocr_err}")
+    finally:
+        import gc
+        gc.collect()
+        import sys
+        if 'torch' in sys.modules:
+            try:
+                sys.modules['torch'].cuda.empty_cache()
+            except Exception:
+                pass
 
     # 3. Graceful fallback: basic description + metadata
     text_result = ""

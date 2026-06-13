@@ -64,10 +64,16 @@ os.makedirs(os.path.join(STATIC_DIR, "js"), exist_ok=True)
 def startup_event():
     init_db()
     print("Database initialised.")
-    # Pre-warm BERT in a background thread so the FIRST plagiarism scan is
-    # instant rather than waiting ~40 s for the model to load.
-    _thread_pool.submit(_preload_bert)
-    print("BERT model warming up in background...")
+    
+    # Check if BERT model is disabled to conserve memory (e.g., on Render free tier)
+    from algorithms.bert_semantic import DISABLE_BERT
+    if not DISABLE_BERT:
+        # Pre-warm BERT in a background thread so the FIRST plagiarism scan is
+        # instant rather than waiting ~40 s for the model to load.
+        _thread_pool.submit(_preload_bert)
+        print("BERT model warming up in background...")
+    else:
+        print("[Startup] Lightweight mode: skipping BERT model pre-warming to conserve RAM.")
 
 def _preload_bert():
     """Loads and caches the BERT model at startup (runs in thread pool)."""
@@ -760,6 +766,11 @@ def teacher_get_analytics(teacher_id: str):
         "risk_distribution": risk_distribution,
         "correlations": correlations
     }
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    from fastapi.responses import Response
+    return Response(status_code=204)
 
 # ==================== STATIC FILES MOUNT ====================
 
