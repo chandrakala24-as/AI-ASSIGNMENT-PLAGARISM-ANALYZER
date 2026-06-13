@@ -63,31 +63,48 @@ def extract_text_from_pdf(file_path: str) -> str:
         ocr_text_content = []
         try:
             reader = PdfReader(file_path)
-            ocr_reader = get_ocr_reader()
+            ocr_reader = get_ocr_reader() if not HAS_TESSERACT else None
             
-            if ocr_reader:
-                import io
-                for page_num, page in enumerate(reader.pages):
-                    page_texts = []
-                    # Run OCR on each image found on the page
-                    for img in page.images:
-                        try:
-                            pil_img = Image.open(io.BytesIO(img.data))
-                            results = ocr_reader.readtext(pil_img, detail=0)
-                            if results:
-                                page_texts.append(" ".join(results))
-                        except Exception as img_err:
-                            print(f"[OCR] Error processing image in page {page_num}: {img_err}")
-                    
-                    if page_texts:
-                        ocr_text_content.append("\n".join(page_texts))
-                    else:
-                        ocr_text_content.append("")
+            import io
+            for page_num, page in enumerate(reader.pages):
+                page_texts = []
+                # Run OCR on each image found on the page
+                for img in page.images:
+                    try:
+                        pil_img = Image.open(io.BytesIO(img.data))
+                        img_text = ""
+                        
+                        # 1. Try PyTesseract first
+                        if HAS_TESSERACT:
+                            try:
+                                img_text = pytesseract.image_to_string(pil_img)
+                            except Exception as t_err:
+                                print(f"[OCR] PyTesseract failed on PDF image: {t_err}")
+                        
+                        # 2. Try EasyOCR if PyTesseract yielded nothing
+                        if not img_text.strip():
+                            if not ocr_reader and not HAS_TESSERACT:
+                                ocr_reader = get_ocr_reader()
+                            if ocr_reader:
+                                results = ocr_reader.readtext(pil_img, detail=0)
+                                if results:
+                                    img_text = " ".join(results)
+                                
+                        if img_text.strip():
+                            page_texts.append(img_text)
+                            
+                    except Exception as img_err:
+                        print(f"[OCR] Error processing image in page {page_num}: {img_err}")
                 
-                ocr_text = "\n".join(ocr_text_content).strip()
-                if ocr_text:
-                    print(f"[OCR] Successfully extracted {len(ocr_text.split())} words via OCR.")
-                    return ocr_text
+                if page_texts:
+                    ocr_text_content.append("\n".join(page_texts))
+                else:
+                    ocr_text_content.append("")
+            
+            ocr_text = "\n".join(ocr_text_content).strip()
+            if ocr_text:
+                print(f"[OCR] Successfully extracted {len(ocr_text.split())} words via OCR.")
+                return ocr_text
         except Exception as ocr_err:
             print(f"[OCR] PDF OCR processing failed: {ocr_err}")
         finally:

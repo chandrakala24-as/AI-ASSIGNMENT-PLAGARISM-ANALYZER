@@ -111,7 +111,7 @@ function renderAssignmentsDropdown() {
 }
 
 function handleAssignmentSelect() {
-    selectedAssignmentId = parseInt(document.getElementById("select-teacher-assignment").value);
+    selectedAssignmentId = document.getElementById("select-teacher-assignment").value;
     if (selectedAssignmentId) {
         document.getElementById("btn-batch-scan").removeAttribute("disabled");
         loadSubmissionsList();
