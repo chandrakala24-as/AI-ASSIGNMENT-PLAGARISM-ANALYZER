@@ -6,6 +6,7 @@ let activeAssignments = [];
 let selectedAssignmentId = null;
 let activeSubmissions = [];
 let selectedSubmission = null;
+let teacherPollInterval = null;
 
 // Charts instances
 let chartGrades = null;
@@ -44,6 +45,10 @@ function switchTeacherTab(tabName) {
         subTab.style.display = "none";
         analyticsTab.style.display = "block";
         event.currentTarget.classList.add("active");
+        if (teacherPollInterval) {
+            clearInterval(teacherPollInterval);
+            teacherPollInterval = null;
+        }
         loadAnalytics();
     }
 }
@@ -98,6 +103,10 @@ function renderAssignmentsDropdown() {
         document.getElementById("btn-batch-scan").setAttribute("disabled", "true");
         document.getElementById("teacher-submissions-table-body").innerHTML = 
             `<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Select an assignment from the dropdown to view submissions.</td></tr>`;
+        if (teacherPollInterval) {
+            clearInterval(teacherPollInterval);
+            teacherPollInterval = null;
+        }
     }
 }
 
@@ -106,6 +115,14 @@ function handleAssignmentSelect() {
     if (selectedAssignmentId) {
         document.getElementById("btn-batch-scan").removeAttribute("disabled");
         loadSubmissionsList();
+        
+        if (teacherPollInterval) clearInterval(teacherPollInterval);
+        teacherPollInterval = setInterval(loadSubmissionsList, 3000);
+    } else {
+        if (teacherPollInterval) {
+            clearInterval(teacherPollInterval);
+            teacherPollInterval = null;
+        }
     }
 }
 
