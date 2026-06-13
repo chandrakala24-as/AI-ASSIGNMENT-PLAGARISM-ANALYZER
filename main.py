@@ -387,30 +387,40 @@ async def _extract_and_store(submission_id: str, file_path: str):
     try:
         # Run CPU/IO-bound extraction in thread pool (non-blocking)
         loop = asyncio.get_event_loop()
+        print(f"[Upload] Starting text extraction for submission {submission_id} from {file_path}")
+        
         extracted_text = await loop.run_in_executor(
             _thread_pool, extract_text, file_path
         )
 
+        word_count = len(extracted_text.split()) if extracted_text.strip() else 0
+        print(f"[Upload] Extraction result: {word_count} words, {len(extracted_text)} chars for submission {submission_id}")
+        
+        if not extracted_text.strip():
+            print(f"[Upload] WARNING: Zero text extracted from {file_path}. Check OCR logs above.")
+            # Still save the empty string — do not abort
+        
         db = get_db()
         db.submissions.update_one(
             {"_id": to_id(submission_id)},
             {"$set": {"extracted_text": extracted_text}}
         )
+        print(f"[Upload] DB updated for submission {submission_id}.")
 
-        print(f"[Upload] Extraction complete for submission {submission_id} "
-              f"({len(extracted_text.split())} words). Triggering plagiarism scan...")
-
-        # Run plagiarism scan in executor since it's CPU/IO bound
+        # Always run plagiarism scan even with empty text (will save 0% report)
+        print(f"[Upload] Triggering plagiarism scan for submission {submission_id}...")
         await loop.run_in_executor(
             _thread_pool, teacher_scan_submission, submission_id
         )
 
         _upload_status[submission_id] = "ready"
-        print(f"[Upload] Plagiarism scan complete for submission {submission_id}")
+        print(f"[Upload] Full pipeline complete for submission {submission_id} ({word_count} words scanned).")
 
     except Exception as exc:
+        import traceback
         _upload_status[submission_id] = "error"
         print(f"[Upload] Background processing failed for submission {submission_id}: {exc}")
+        print(traceback.format_exc())
 
 
 @app.get("/api/student/upload_status/{submission_id}")
@@ -421,6 +431,48 @@ def get_upload_status(submission_id: str):
     """
     status = _upload_status.get(submission_id, "unknown")
     return {"submission_id": submission_id, "status": status}
+
+
+@app.post("/api/admin/reextract/{submission_id}")
+async def admin_reextract_submission(submission_id: str, background_tasks: BackgroundTasks):
+    """
+    Force re-extract text and re-scan a specific submission.
+    Useful for fixing 0-word extractions without re-uploading.
+    """
+    db = get_db()
+    sub = db.submissions.find_one({"_id": to_id(submission_id)})
+    if not sub:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    file_path = sub.get("file_path", "")
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(status_code=400, detail=f"Original file not found at: {file_path}")
+
+    _upload_status[submission_id] = "processing"
+    background_tasks.add_task(_extract_and_store, submission_id, file_path)
+    return {"status": "started", "message": f"Re-extraction started for submission {submission_id}"}
+
+
+@app.get("/api/admin/debug_submission/{submission_id}")
+def admin_debug_submission(submission_id: str):
+    """Returns full submission details including extracted text preview — for debugging."""
+    db = get_db()
+    sub = db.submissions.find_one({"_id": to_id(submission_id)})
+    if not sub:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    report = db.plagiarism_reports.find_one({"submission_id": to_id(submission_id)})
+    extracted = sub.get("extracted_text", "")
+    return {
+        "submission_id": submission_id,
+        "file_name": sub.get("file_name"),
+        "file_path": sub.get("file_path"),
+        "file_exists": os.path.exists(sub.get("file_path", "")),
+        "extracted_text_length": len(extracted),
+        "extracted_text_words": len(extracted.split()) if extracted.strip() else 0,
+        "extracted_text_preview": extracted[:500] if extracted else "[EMPTY]",
+        "has_plagiarism_report": report is not None,
+        "overall_plagiarism_pct": report.get("overall_plagiarism_pct") if report else None,
+    }
 
 # ==================== TEACHER ENDPOINTS ====================
 
