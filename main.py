@@ -421,6 +421,36 @@ def get_upload_status(submission_id: str):
     return {"submission_id": submission_id, "status": status}
 
 
+@app.delete("/api/student/delete_submission/{submission_id}")
+def delete_submission(submission_id: str, student_id: str):
+    """
+    Delete a student's own submission by submission_id.
+    student_id is passed as a query param and verified against the record.
+    """
+    db = get_db()
+    sub = db.submissions.find_one({"_id": to_id(submission_id)})
+    if not sub:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    
+    # Verify ownership — compare stored student_id with provided one
+    stored_student_id = str(sub.get("student_id", ""))
+    if stored_student_id != student_id:
+        raise HTTPException(status_code=403, detail="You are not authorized to delete this submission")
+
+    db.submissions.delete_one({"_id": to_id(submission_id)})
+    db.plagiarism_reports.delete_many({"submission_id": to_id(submission_id)})
+    
+    # Try to clean up the uploaded file from disk
+    try:
+        file_path = sub.get("file_path")
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+    except Exception:
+        pass
+        
+    return {"status": "success", "message": "Submission deleted successfully"}
+
+
 @app.post("/api/admin/reextract/{submission_id}")
 async def admin_reextract_submission(submission_id: str, background_tasks: BackgroundTasks):
     """
@@ -848,5 +878,6 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 if __name__ == "__main__":
     import uvicorn
-    # Start the server on host 127.0.0.1 and port 8000
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    # Bind to 0.0.0.0 so reverse proxies (like Render) can connect
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)

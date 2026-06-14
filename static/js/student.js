@@ -4,6 +4,7 @@ let studentUser = null;
 let selectedFile = null;
 let activeSubmissions = [];
 let submissionsPollInterval = null;
+let submissionToDelete = null; // Track which submission is being deleted
 
 document.addEventListener("DOMContentLoaded", () => {
     studentUser = checkAuth(["student"]);
@@ -87,7 +88,7 @@ async function loadSubmissions() {
     let reportCount = 0;
     
     if (subs.length === 0) {
-        tableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No assignments submitted yet.</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">No assignments submitted yet.</td></tr>`;
     } else {
         subs.forEach(sub => {
             if (sub.marks !== null) {
@@ -112,22 +113,29 @@ async function loadSubmissions() {
             const tr = document.createElement("tr");
             tr.innerHTML = `
                 <td style="font-weight: 600; color: var(--text-primary);">${sub.assignment_title}</td>
-                <td style="font-family: monospace; font-size: 0.8rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${sub.file_name}</td>
+                <td style="font-family: monospace; font-size: 0.8rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${sub.file_name}">${sub.file_name}</td>
                 <td>${formatDate(sub.submitted_at)}</td>
                 <td>${plagText}</td>
                 <td style="font-weight: 700;">
                     ${sub.marks !== null ? `<span style="color: var(--accent-green);">${sub.marks} / 100</span>` : '<span style="color: var(--text-muted); font-size: 0.85rem;">Ungraded</span>'}
                 </td>
                 <td style="text-align: right;">
-                    ${sub.overall_plagiarism_pct !== null ? `
-                        <button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.8rem;" onclick="viewReport('${sub.submission_id}')">
-                            <i class="fa-solid fa-square-poll-vertical"></i> View Report
+                    <div style="display: flex; gap: 6px; justify-content: flex-end; align-items: center;">
+                        ${sub.overall_plagiarism_pct !== null ? `
+                            <button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.8rem;" onclick="viewReport('${sub.submission_id}')">
+                                <i class="fa-solid fa-square-poll-vertical"></i> View Report
+                            </button>
+                        ` : `
+                            <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem;" disabled>
+                                <i class="fa-solid fa-spinner fa-spin"></i> Processing
+                            </button>
+                        `}
+                        <button class="btn btn-danger" style="padding: 6px 10px; font-size: 0.8rem; background: rgba(255,51,102,0.15); border: 1px solid rgba(255,51,102,0.4); color: #ff3366;" 
+                            onclick="confirmDeleteSubmission('${sub.submission_id}', '${escapeHtml(sub.assignment_title)}')" 
+                            title="Delete & Re-upload">
+                            <i class="fa-solid fa-trash-can"></i>
                         </button>
-                    ` : `
-                        <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem;" disabled>
-                            <i class="fa-solid fa-spinner fa-spin"></i> Processing
-                        </button>
-                    `}
+                    </div>
                 </td>
             `;
             tableBody.appendChild(tr);
@@ -278,6 +286,79 @@ async function handleUploadSubmit(event) {
         btnIcon.className = "fa-solid fa-paper-plane";
     }
 }
+
+// ==================== DELETE SUBMISSION FEATURE ====================
+
+function confirmDeleteSubmission(submissionId, assignmentTitle) {
+    submissionToDelete = submissionId;
+    
+    // Update delete modal content
+    const modalTitle = document.getElementById("delete-modal-title");
+    const modalDesc = document.getElementById("delete-modal-desc");
+    
+    if (modalTitle) modalTitle.textContent = "Delete Submission";
+    if (modalDesc) modalDesc.textContent = `Are you sure you want to delete your submission for "${assignmentTitle}"? This will permanently remove the file and its plagiarism report. You can upload a new document after deletion.`;
+    
+    // Show modal
+    document.getElementById("delete-confirm-modal").classList.add("active");
+}
+
+function closeDeleteModal() {
+    submissionToDelete = null;
+    document.getElementById("delete-confirm-modal").classList.remove("active");
+}
+
+async function executeDeleteSubmission() {
+    if (!submissionToDelete) return;
+    
+    const deleteBtn = document.getElementById("btn-confirm-delete");
+    const originalText = deleteBtn.innerHTML;
+    deleteBtn.disabled = true;
+    deleteBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Deleting...';
+    
+    try {
+        const response = await fetch(
+            `/api/student/delete_submission/${submissionToDelete}?student_id=${encodeURIComponent(studentUser.user_id)}`,
+            { method: "DELETE" }
+        );
+        
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.detail || "Delete failed");
+        }
+        
+        // Close modal
+        closeDeleteModal();
+        
+        // Show success feedback
+        const alertBox = document.getElementById("upload-alert");
+        alertBox.className = "auth-alert auth-alert-success";
+        alertBox.textContent = "Submission deleted successfully. You can now upload a new document for this assignment.";
+        alertBox.style.display = "block";
+        
+        // Scroll to upload section
+        document.getElementById("submission-form").scrollIntoView({ behavior: "smooth", block: "start" });
+        
+        // Reload submissions list
+        await loadStudentDashboard();
+        
+        setTimeout(() => {
+            alertBox.style.display = "none";
+        }, 5000);
+        
+    } catch (error) {
+        const alertBox = document.getElementById("upload-alert");
+        alertBox.className = "auth-alert auth-alert-error";
+        alertBox.textContent = "Failed to delete submission: " + error.message;
+        alertBox.style.display = "block";
+        closeDeleteModal();
+    } finally {
+        deleteBtn.disabled = false;
+        deleteBtn.innerHTML = originalText;
+    }
+}
+
+// ==================== PLAGIARISM REPORT MODAL ====================
 
 // Render Plagiarism Highlights Report Modal
 function viewReport(submissionId) {

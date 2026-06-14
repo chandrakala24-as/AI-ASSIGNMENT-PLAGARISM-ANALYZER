@@ -172,7 +172,7 @@
                   <th>Submitted At</th>
                   <th>Plagiarism (Overall)</th>
                   <th>Grade / Marks</th>
-                  <th style="text-align: right;">Action</th>
+                  <th style="text-align: right;">Actions</th>
                 </tr>
               </thead>
               <tbody id="submissions-table-body">
@@ -183,6 +183,35 @@
         </div>
       </div>
     </main>
+  </div>
+
+  <!-- Delete Confirmation Modal -->
+  <div class="modal-overlay" id="delete-confirm-modal">
+    <div class="modal-content" style="max-width: 460px;">
+      <div class="modal-header">
+        <h3 id="delete-modal-title" style="color: #ff3366;"><i class="fa-solid fa-triangle-exclamation" style="margin-right: 8px;"></i>Delete Submission</h3>
+        <button class="modal-close" onclick="closeDeleteModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <p id="delete-modal-desc" style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 24px;"></p>
+        
+        <div style="background: rgba(255, 51, 102, 0.08); border: 1px solid rgba(255, 51, 102, 0.3); border-radius: 10px; padding: 14px; margin-bottom: 24px; display: flex; gap: 10px; align-items: flex-start;">
+          <i class="fa-solid fa-circle-info" style="color: #ff3366; margin-top: 2px; flex-shrink: 0;"></i>
+          <span style="font-size: 0.875rem; color: var(--text-secondary);">After deletion, you can upload a new document for the same assignment using the upload form above.</span>
+        </div>
+        
+        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+          <button class="btn btn-secondary" onclick="closeDeleteModal()">
+            <i class="fa-solid fa-xmark"></i>
+            <span>Cancel</span>
+          </button>
+          <button id="btn-confirm-delete" class="btn" style="background: rgba(255,51,102,0.2); border: 1px solid rgba(255,51,102,0.5); color: #ff3366;" onclick="executeDeleteSubmission()">
+            <i class="fa-solid fa-trash-can"></i>
+            <span>Delete Permanently</span>
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Highlights Plagiarism Report Modal -->
