@@ -1,6 +1,8 @@
 // Common Application Helpers & Auth Check
 
-const API_BASE = "";
+const API_BASE = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" 
+    ? "" 
+    : "https://ai-assignment-plagarism-analyzer.onrender.com";
 
 // Theme Management
 function initializeTheme() {

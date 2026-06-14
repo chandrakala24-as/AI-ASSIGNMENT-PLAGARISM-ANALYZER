@@ -55,7 +55,7 @@ async function loadStudentDashboard() {
 
 // Fetch and render assignments for section
 async function loadAssignments() {
-    const assignments = await apiRequest(`/api/student/assignments?section=${studentUser.section}`);
+    const assignments = await apiRequest(`${API_BASE}/api/student/assignments?section=${studentUser.section}`);
     
     // Select dropdown
     const select = document.getElementById("select-assignment");
@@ -76,7 +76,7 @@ async function loadAssignments() {
 
 // Fetch and render submissions
 async function loadSubmissions() {
-    const subs = await apiRequest(`/api/student/submissions?student_id=${studentUser.user_id}`);
+    const subs = await apiRequest(`${API_BASE}/api/student/submissions?student_id=${studentUser.user_id}`);
     activeSubmissions = subs;
     
     const tableBody = document.getElementById("submissions-table-body");
@@ -248,7 +248,7 @@ async function handleUploadSubmit(event) {
         formData.append("student_id", studentUser.user_id);
         formData.append("file", selectedFile);
         
-        const response = await fetch("/api/student/upload", {
+        const response = await fetch(API_BASE + "/api/student/upload", {
             method: "POST",
             body: formData
         });
@@ -318,7 +318,7 @@ async function executeDeleteSubmission() {
     
     try {
         const response = await fetch(
-            `/api/student/delete_submission/${submissionToDelete}?student_id=${encodeURIComponent(studentUser.user_id)}`,
+            `${API_BASE}/api/student/delete_submission/${submissionToDelete}?student_id=${encodeURIComponent(studentUser.user_id)}`,
             { method: "DELETE" }
         );
         

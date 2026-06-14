@@ -73,7 +73,7 @@ function filterBySection(section) {
 // Fetch all assignments created by teacher
 async function loadTeacherAssignments() {
     try {
-        activeAssignments = await apiRequest(`/api/teacher/assignments?teacher_id=${teacherUser.user_id}`);
+        activeAssignments = await apiRequest(`${API_BASE}/api/teacher/assignments?teacher_id=${teacherUser.user_id}`);
         renderAssignmentsDropdown();
     } catch (err) {
         console.error("Failed to load assignments:", err);
@@ -131,7 +131,7 @@ async function loadSubmissionsList() {
     if (!selectedAssignmentId) return;
     
     try {
-        activeSubmissions = await apiRequest(`/api/teacher/submissions?assignment_id=${selectedAssignmentId}`);
+        activeSubmissions = await apiRequest(`${API_BASE}/api/teacher/submissions?assignment_id=${selectedAssignmentId}`);
         const tableBody = document.getElementById("teacher-submissions-table-body");
         tableBody.innerHTML = "";
         
@@ -196,7 +196,7 @@ async function handleCreateAssignment(event) {
         formData.append("due_date", dueDate);
         formData.append("teacher_id", teacherUser.user_id);
         
-        const response = await fetch("/api/teacher/assignments", {
+        const response = await fetch(API_BASE + "/api/teacher/assignments", {
             method: "POST",
             body: formData
         });
@@ -265,7 +265,7 @@ async function runPlagiarismScan(submissionId, studentName) {
     showScanningModal(`Scanning Assignment: ${studentName}`);
     
     // Trigger the backend API call immediately in background
-    const scanPromise = fetch(`/api/teacher/scan/${submissionId}`, { method: "POST" })
+    const scanPromise = fetch(`${API_BASE}/api/teacher/scan/${submissionId}`, { method: "POST" })
         .then(res => {
             if (!res.ok) throw new Error("Plagiarism engine encounterd an error.");
             return res.json();
@@ -340,7 +340,7 @@ async function triggerBatchScan() {
             await addLogLine(`Scanning student submission [${i + 1}/${activeSubmissions.length}]: ${sub.student_name}...`, 200);
             
             // Execute scan API synchronously for stability in batch
-            const response = await fetch(`/api/teacher/scan/${sub.submission_id}`, { method: "POST" });
+            const response = await fetch(`${API_BASE}/api/teacher/scan/${sub.submission_id}`, { method: "POST" });
             if (!response.ok) {
                 await addLogLine(`[WARN] Failed to scan submission for ${sub.student_name}.`, 100);
             } else {
@@ -464,7 +464,7 @@ async function handleGradeSubmit(event) {
         formData.append("marks", marks);
         formData.append("feedback", feedback);
         
-        const response = await fetch(`/api/teacher/grade/${selectedSubmission.submission_id}`, {
+        const response = await fetch(`${API_BASE}/api/teacher/grade/${selectedSubmission.submission_id}`, {
             method: "POST",
             body: formData
         });
@@ -562,7 +562,7 @@ function escapeHtml(unsafe) {
 // Fetch and render analytics charts using Chart.js
 async function loadAnalytics() {
     try {
-        const data = await apiRequest(`/api/teacher/analytics?teacher_id=${teacherUser.user_id}`);
+        const data = await apiRequest(`${API_BASE}/api/teacher/analytics?teacher_id=${teacherUser.user_id}`);
         
         const sections = data.section_data.map(d => d.section);
         const avgMarks = data.section_data.map(d => d.avg_marks);

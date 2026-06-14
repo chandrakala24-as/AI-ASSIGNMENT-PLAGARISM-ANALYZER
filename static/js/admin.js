@@ -32,7 +32,7 @@ function setFormRole(role) {
 // Load users from backend
 async function loadUsersList() {
     try {
-        const users = await apiRequest("/api/admin/users");
+        const users = await apiRequest(API_BASE + "/api/admin/users");
         
         const tableBody = document.getElementById("users-table-body");
         tableBody.innerHTML = "";
@@ -102,7 +102,7 @@ async function handleCreateUser(event) {
             formData.append("section", section);
         }
         
-        const response = await fetch("/api/admin/users", {
+        const response = await fetch(API_BASE + "/api/admin/users", {
             method: "POST",
             body: formData
         });
@@ -141,7 +141,7 @@ async function handleCreateUser(event) {
 async function deleteUser(userId, username) {
     if (confirm(`Are you sure you want to permanently delete credentials for "${username}"?`)) {
         try {
-            const response = await fetch(`/api/admin/users/${userId}`, {
+            const response = await fetch(`${API_BASE}/api/admin/users/${userId}`, {
                 method: "DELETE"
             });
             
