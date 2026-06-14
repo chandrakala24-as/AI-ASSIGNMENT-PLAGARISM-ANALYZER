@@ -26,6 +26,7 @@ from utils.text_extractor import extract_text
 from algorithms.tfidf_cosine import calculate_tfidf_similarity_batch
 from algorithms.ngram_matching import calculate_ngram_similarity
 from algorithms.winnowing import WinnowingMatcher
+from algorithms.crnn_inference import calculate_crnn_similarity_batch
 
 # Pre-filter: only run expensive algorithms on pairs exceeding this TF-IDF score.
 _PREFILTER_THRESHOLD = 0.03   # 3 %
@@ -602,7 +603,18 @@ def teacher_scan_submission(submission_id: str):
         winnow_matcher = WinnowingMatcher(k=12, w=4)
         ngram_scores = [0.0] * len(peers)
         winnow_scores = [0.0] * len(peers)
+        crnn_scores = [0.0] * len(peers)
         winnow_spans_all = [[] for _ in peers]
+
+        # CRNN batch inference on all candidates at once
+        try:
+            candidate_texts = [peer_texts[i] for i in candidate_indices]
+            if candidate_texts:
+                crnn_batch = calculate_crnn_similarity_batch(target_text_norm, candidate_texts)
+                for ci, i in enumerate(candidate_indices):
+                    crnn_scores[i] = crnn_batch[ci]
+        except Exception as exc:
+            print(f"[Scan] CRNN batch error: {exc}")
 
         def _structural(idx: int):
             text = peer_texts[idx]
@@ -620,11 +632,12 @@ def teacher_scan_submission(submission_id: str):
                 print(f"[Scan] Structural error peer {i}: {exc}")
 
         for i, peer in enumerate(peers):
-            # 3-algorithm weighted score (no BERT = no torch RAM spike)
+            # 4-algorithm weighted score (TF-IDF + N-gram + Winnowing + CRNN)
             combined = (
-                0.40 * tfidf_scores[i]
-                + 0.30 * ngram_scores[i]
-                + 0.30 * winnow_scores[i]
+                0.30 * tfidf_scores[i]
+                + 0.25 * ngram_scores[i]
+                + 0.25 * winnow_scores[i]
+                + 0.20 * crnn_scores[i]
             )
             pct = round(combined * 100.0, 1)
 
@@ -640,6 +653,7 @@ def teacher_scan_submission(submission_id: str):
                         "tfidf":     round(tfidf_scores[i]  * 100.0, 1),
                         "ngram":     round(ngram_scores[i]  * 100.0, 1),
                         "winnowing": round(winnow_scores[i] * 100.0, 1),
+                        "crnn":      round(crnn_scores[i]   * 100.0, 1),
                     },
                     "matched_spans": winnow_spans_all[i][:10],
                 })
@@ -694,7 +708,7 @@ def teacher_scan_submission(submission_id: str):
             "scanned_at":         datetime.now().isoformat(),
             "target_word_count":  len(target_text_norm.split()),
             "peers_scanned":      len(peers),
-            "algorithms_used":    ["TF-IDF Cosine", "N-gram Jaccard", "Winnowing Fingerprinting"],
+            "algorithms_used":    ["TF-IDF Cosine", "N-gram Jaccard", "Winnowing Fingerprinting", "CRNN Deep Learning"],
         },
     }
 

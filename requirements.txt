@@ -7,3 +7,4 @@ python-pptx>=0.6.21
 pillow>=10.2.0
 scikit-learn>=1.4.0
 pymongo[srv]>=4.6.0
+torch>=2.0.0
