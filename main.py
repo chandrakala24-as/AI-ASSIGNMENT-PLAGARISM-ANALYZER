@@ -28,9 +28,12 @@ from algorithms.ngram_matching import calculate_ngram_similarity
 from algorithms.winnowing import WinnowingMatcher
 from algorithms.crnn_inference import calculate_crnn_similarity_batch
 
-# Pre-filter: only run expensive algorithms on pairs exceeding this TF-IDF score.
-_PREFILTER_THRESHOLD = 0.03   # 3 %
-_REPORT_THRESHOLD    = 5.0    # minimum combined % to include in report
+# -- Tuning parameters --
+# Prefilter: Minimum TF-IDF similarity to even run deeper scans (0.00 means run on all peers to catch small copies)
+_PREFILTER_THRESHOLD = 0.00
+
+# Report: Minimum overall similarity % to flag in the final report
+_REPORT_THRESHOLD = 0.5    # minimum combined % to include in report
 _MAX_SCAN_WORKERS    = 2      # keep thread count low on free tier
 
 # ─────────────────────────────────────────────────────────────────────────────

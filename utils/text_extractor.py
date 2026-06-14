@@ -27,7 +27,7 @@ import urllib.parse
 import urllib.error
 from typing import Optional
 
-from pypdf import PdfReader
+import fitz  # PyMuPDF
 from PIL import Image
 
 # ─── optional library imports ────────────────────────────────────────────────
@@ -141,22 +141,12 @@ def _ocr_image(pil_img: Image.Image, language: str = "eng") -> str:
 
 def _render_pdf_page_to_pil(page) -> Optional[Image.Image]:
     """
-    Extract the largest embedded image from a pypdf page as a PIL Image.
-    Returns None if no images are present.
+    Render a PyMuPDF page to a PIL Image for OCR fallback.
     """
     try:
-        largest_img = None
-        largest_size = 0
-        for img_obj in page.images:
-            try:
-                size = len(img_obj.data)
-                if size > largest_size:
-                    largest_size = size
-                    largest_img = img_obj
-            except Exception:
-                continue
-        if largest_img:
-            return Image.open(io.BytesIO(largest_img.data))
+        pix = page.get_pixmap(dpi=150)
+        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        return img
     except Exception as exc:
         print(f"[PDF] Could not render page image: {exc}")
     return None
@@ -167,19 +157,19 @@ def _render_pdf_page_to_pil(page) -> Optional[Image.Image]:
 def extract_text_from_pdf(file_path: str) -> str:
     """
     Extract text from a PDF.
-    1. Native text layer (pypdf) — fastest, no deps.
+    1. Native text layer (PyMuPDF) — fastest, no deps.
     2. If result is too short (<50 chars per page avg), assume scanned PDF:
-       iterate pages, extract embedded images, send each to OCR.space.
+       render pages to images, send each to OCR.space.
     """
     all_text: list[str] = []
 
     try:
-        reader = PdfReader(file_path)
-        for page in reader.pages:
-            page_text = page.extract_text() or ""
+        doc = fitz.open(file_path)
+        for page in doc:
+            page_text = page.get_text() or ""
             all_text.append(page_text)
     except Exception as exc:
-        print(f"[PDF] pypdf failed: {exc}")
+        print(f"[PDF] PyMuPDF failed: {exc}")
         return ""
 
     combined = "\n".join(all_text).strip()
@@ -194,11 +184,13 @@ def extract_text_from_pdf(file_path: str) -> str:
     ocr_parts: list[str] = []
 
     try:
-        reader = PdfReader(file_path)
-        for page_num, page in enumerate(reader.pages, 1):
+        for page_num, page in enumerate(doc, 1):
+            if page_num > 10:  # Limit OCR to first 10 pages to avoid timeouts on Render
+                print(f"[PDF] Reached 10 page limit for OCR, stopping to prevent timeouts.")
+                break
+                
             pil_img = _render_pdf_page_to_pil(page)
             if pil_img is None:
-                print(f"[PDF] Page {page_num}: no embedded image found, skipping.")
                 continue
 
             text = _ocr_image(pil_img)
